@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"github.com/google/gopacket/pcap"
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
 	"github.com/mdlayher/wifi"
@@ -10,18 +12,14 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 const ETH_ALEN = 6
 
-type Client struct {
-	BSSID []byte
-}
-
 type Station struct {
 	BSSID []byte
 	SSID string
-	Clients []Client
 }
 
 func help() {
@@ -142,6 +140,7 @@ func decodeScanResults(msgs []genetlink.Message) []Station {
 	}
 	return *stations
 }
+
 func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) []Station {
 
 	encoder := netlink.NewAttributeEncoder()
@@ -179,7 +178,7 @@ func getInterface(targetIface string) (* wifi.Interface, error) {
 	}()
 	ifaces, err := client.Interfaces()
 	if err != nil {
-		log.Panicln(err)
+		return nil, errors.New("wifi.Client.Interfaces()" + err.Error())
 	}
 	for _, v := range ifaces {
 		if v.Name == targetIface {
@@ -216,20 +215,51 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 	return &fam, nil
 }
 
+func printMac(bssid []byte) {
+	for i := 0; i < ETH_ALEN; i++ {
+		if i < ETH_ALEN - 1 {
+			fmt.Printf("%02x:", bssid[i])
+		} else {
+			fmt.Printf("%02x\n", bssid[i])
+		}
+	}
+}
+
 func printStations(aps []Station) {
 	for _, v  := range aps {
 		if v.SSID == "" {
 			v.SSID = "No broadcast"
 		}
 		fmt.Printf("%s - ", v.SSID)
-		for i := 0; i < ETH_ALEN; i++ {
-			if i < ETH_ALEN - 1 {
-				fmt.Printf("%02x:", v.BSSID[i])
-			} else {
-				fmt.Printf("%02x\n", v.BSSID[i])
-			}
+		bssid := v.BSSID
+		printMac(bssid)
+	}
+}
+
+func getWhiteList() map[string]bool {
+	wlist := map[string]bool{}
+	file, err := os.Open(os.Args[2])
+	if err != nil {
+		log.Panicln()
+	}
+	fscanner := bufio.NewScanner(file)
+	for fscanner.Scan() {
+		ssid := strings.TrimSpace(fscanner.Text())
+		wlist[ssid] = true
+	}
+	return wlist
+}
+
+func makeTargetList(stations []Station, wlist map[string]bool) map[[ETH_ALEN]byte]Station {
+	targets := map[[ETH_ALEN]byte]Station {}
+	for _, v := range stations {
+		if _, ok := wlist[v.SSID]; !ok {
+			fmt.Println(ok)
+			bssid := [ETH_ALEN]byte{ v.BSSID[0], v.BSSID[1], v.BSSID[2], v.BSSID[3], v.BSSID[4], v.BSSID[5] }
+			targets[bssid] = v
 		}
 	}
+	return targets
 }
 
 func main() {
@@ -263,7 +293,22 @@ func main() {
 	if err := triggerScan(conn, fam, iface); err != nil {
 		log.Fatalln(err)
 	}
-	stations  := getScanResults(conn, fam, iface)
+	stations := getScanResults(conn, fam, iface)
 	printStations(stations)
-	//TODO get list of subscribers for each station
+	wlist := getWhiteList()
+	targList := makeTargetList(stations, wlist)
+	for k := range wlist {
+		fmt.Println(k)
+	}
+	for _, v := range targList {
+		fmt.Printf("target: %s", v.SSID)
+		printMac(v.BSSID)
+	}
+	var snapLen int32 = 1024
+	var timeOut = 30 * time.Second
+	phandle, err := pcap.OpenLive(iface.Name, snapLen, true, timeOut)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer phandle.Close()
 }
