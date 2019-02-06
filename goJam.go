@@ -3,16 +3,16 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
-	"os"
-
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
 	"github.com/mdlayher/wifi"
 	"github.com/remyoudompheng/go-netlink/nl80211"
+	"log"
+	"os"
+	"strings"
 )
 
-
+const ETH_ALEN = 6
 
 func help() {
 
@@ -73,21 +73,27 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 
 type Station struct {
 	BSSID []byte
-	SSID []byte
+	SSID string
 }
 
-func (s *Station) DecodeBSSIE(b []byte) error {
-	ad, err := netlink.NewAttributeDecoder(b)
-	if err != nil {
-		log.Panicln("netlink.NewAttributeDecoder() " + err.Error())
-	}
-	for ad.Next() {
-		switch ad.Type() {
-		default:
-			fmt.Println(ad.Type())
-			break
+func hexPrint(b []byte) {
+	for e, v := range b {
+		fmt.Printf("%02x ", v)
+		if (e + 1) % 4 == 0 {
+			fmt.Printf("\t")
+		}
+		if (e + 1) % 16 == 0 {
+			fmt.Printf("\n")
 		}
 	}
+	fmt.Printf("\n")
+}
+
+//this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
+// or maybe im just an idiot
+func (s *Station) getSSIDFromBSSIE(b []byte) error {
+	ssidLen := uint(b[1])
+	s.SSID = strings.TrimSpace(string(b[2:ssidLen + 2]))
 	return nil
 }
 
@@ -100,13 +106,11 @@ func (s * Station) DecodeBSS(b []byte) error {
 		switch ad.Type() {
 		case nl80211.BSS_BSSID:
 			s.BSSID = ad.Bytes()
-			fmt.Printf("got BSSID\n")
 			break
 		case nl80211.BSS_INFORMATION_ELEMENTS:
-			ad.Do(s.DecodeBSSIE)
+			ad.Do(s.getSSIDFromBSSIE)
 			break
 		default:
-			fmt.Printf("BSS CODE: %02x\n",  ad.Type())
 			break
 		}
 	}
@@ -115,7 +119,6 @@ func (s * Station) DecodeBSS(b []byte) error {
 
 func decodeScanResults(msgs []genetlink.Message) []Station {
 	var stations = new([]Station)
-	fmt.Println(len(msgs))
 	for i := 0; i < len(msgs); i++ {
 		ad, err := netlink.NewAttributeDecoder(msgs[i].Data)
 		if err != nil {
@@ -128,17 +131,14 @@ func decodeScanResults(msgs []genetlink.Message) []Station {
 				ad.Do(ap.DecodeBSS)
 				break
 			default:
-				fmt.Printf(" %02x\n",  ad.Type())
 				break
 			}
 		}
-		fmt.Println("\nNew AP: ")
 		*stations = append(*stations, ap)
 	}
 	return *stations
 }
-func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) []genetlink.Message {
-//	var stations []Station
+func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) []Station {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
@@ -158,8 +158,7 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Int
 	if err != nil {
 		log.Panicln("genetlink.Conn.Execute()", err)
 	}
-	decodeScanResults(msgs)
-	return nil
+	return decodeScanResults(msgs)
 }
 
 func getInterface(targetIface string) (* wifi.Interface, error) {
@@ -213,6 +212,19 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 	return &fam, nil
 }
 
+func printStations(aps []Station) {
+	for _, v  := range aps {
+		fmt.Printf("%s -", v.SSID)
+		for i := 0; i < ETH_ALEN; i++ {
+			if i < ETH_ALEN - 1 {
+				fmt.Printf("%02x:", v.BSSID[i])
+			} else {
+				fmt.Printf("%02x\n", v.BSSID[i])
+			}
+		}
+	}
+}
+
 func main() {
 	if len(os.Args) < 3 {
 		help()
@@ -244,8 +256,6 @@ func main() {
 	if err := triggerScan(conn, fam, iface); err != nil {
 		log.Fatalln(err)
 	}
-	stations := getScanResults(conn, fam, iface)
-	for _, v := range stations {
-		fmt.Println(v)
-	}
+	stations  := getScanResults(conn, fam, iface)
+	printStations(stations)
 }
