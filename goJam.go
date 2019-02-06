@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
@@ -29,15 +30,16 @@ func help() {
 }
 
 func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
-	var done bool = false
-	var failed bool = false
+	var done = false
+	var failed = false
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
+	// wildcard scan
 	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
 	attribs, err := encoder.Encode()
 	if err != nil {
-		log.Panicln("genetlink.Encoder.Encode()", err)
+		return errors.New("genetlink.Encoder.Encode()" + err.Error())
 	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
@@ -49,7 +51,7 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.Send(req, fam.ID, flags)
 	if err != nil {
-		log.Panicln("genetlink.Conn.Send()", err)
+		return errors.New("genetlink.Conn.Send()" + err.Error())
 	}
 	for !done && !failed {
 		msgs, _, err := conn.Receive()
@@ -65,10 +67,7 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 			case nl80211.CMD_SCAN_ABORTED:
 				failed = true
 				fmt.Println("SCAN ABORTED, trying again...")
-				if err := triggerScan(conn, fam, iface); err != nil {
-					log.Panicln(err)
-				}
-				break
+				return triggerScan(conn, fam, iface)
 			default:
 				break
 			}
@@ -119,12 +118,12 @@ func (s * Station) DecodeBSS(b []byte) error {
 	return nil
 }
 
-func decodeScanResults(msgs []genetlink.Message) []Station {
-	var stations = new([]Station)
+func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
+	var stations = []Station{}
 	for i := 0; i < len(msgs); i++ {
 		ad, err := netlink.NewAttributeDecoder(msgs[i].Data)
 		if err != nil {
-			log.Panicln("netlink.NewAttributeeDecoder()", err)
+			return nil, errors.New("netlink.NewAttributeeDecoder()" + err.Error())
 		}
 		var ap Station
 		for ad.Next() {
@@ -136,19 +135,19 @@ func decodeScanResults(msgs []genetlink.Message) []Station {
 				break
 			}
 		}
-		*stations = append(*stations, ap)
+		stations = append(stations, ap)
 	}
-	return *stations
+	return stations, nil
 }
 
-func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) []Station {
+func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) ([]Station, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
 	attribs, err := encoder.Encode()
 	if err != nil {
-		log.Panicln("genetlink.Encoder.Encode()", err)
+		return nil, errors.New("genetlink.Encoder.Encode()" + err.Error())
 	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
@@ -159,7 +158,7 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Int
 	}
 	msgs, err := conn.Execute(req, fam.ID, flags)
 	if err != nil {
-		log.Panicln("genetlink.Conn.Execute()", err)
+		return nil, errors.New("genetlink.Conn.Execute()" + err.Error())
 	}
 	return decodeScanResults(msgs)
 }
@@ -293,7 +292,10 @@ func main() {
 	if err := triggerScan(conn, fam, iface); err != nil {
 		log.Fatalln(err)
 	}
-	stations := getScanResults(conn, fam, iface)
+	stations, err := getScanResults(conn, fam, iface)
+	if err != nil {
+		log.Fatalln("getScanResults()", err)
+	}
 	printStations(stations)
 	wlist := getWhiteList()
 	targList := makeTargetList(stations, wlist)
@@ -305,10 +307,23 @@ func main() {
 		printMac(v.BSSID)
 	}
 	var snapLen int32 = 1024
-	var timeOut = 30 * time.Second
+	var timeOut = 10 * time.Second
 	phandle, err := pcap.OpenLive(iface.Name, snapLen, true, timeOut)
 	if err != nil {
 		log.Fatalln(err)
+	}
+	packSrc := gopacket.NewPacketSource(phandle, phandle.LinkType())
+	for packet := range packSrc.Packets() {
+		l2Hdr := packet.LinkLayer().LayerContents()
+		if len(l2Hdr) > 12 {
+			src := l2Hdr[0:6]
+			dst := l2Hdr[7:13]
+			fmt.Print("src: ")
+			printMac(src)
+			fmt.Print("dst: ")
+			printMac(dst)
+			fmt.Println("\n")
+		}
 	}
 	defer phandle.Close()
 }
