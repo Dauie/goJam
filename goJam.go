@@ -18,6 +18,8 @@ import (
 	"github.com/remyoudompheng/go-netlink/nl80211"
 )
 
+const NO_SSID = "SSID not broadcasted"
+
 const ETH_ALEN = 6
 
 type Station struct {
@@ -93,7 +95,11 @@ func hexPrint(b []byte) {
 // or maybe im just an idiot
 func (s *Station) getSSIDFromBSSIE(b []byte) error {
 	ssidLen := uint(b[1])
-	s.SSID = strings.TrimSpace(string(b[2:ssidLen + 2]))
+	if ssidLen != 0 {
+		s.SSID = strings.TrimSpace(string(b[2:ssidLen + 2]))
+	} else {
+		s.SSID = NO_SSID
+	}
 	return nil
 }
 
@@ -307,6 +313,7 @@ func main() {
 	var snapLen int32 = 1024
 	var timeOut = 1 * time.Second
 	phandle, err := pcap.OpenLive(iface.Name, snapLen, true, timeOut)
+	defer phandle.Close()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -315,21 +322,21 @@ func main() {
 	var dst net.HardwareAddr
 	for packet := range packSrc.Packets() {
 		l2Hdr := packet.LinkLayer().LayerContents()
-		if len(l2Hdr) > 12 {
-			dst = l2Hdr[0:6]
-			src = l2Hdr[6:13]
-			if _, ok := targList[src.String()]; ok {
-				fmt.Printf("src ping")
-			}
-			if _, ok := targList[dst.String()]; ok {
-				fmt.Printf("dst zing")
-			}
-			//fmt.Print("src: ")
-			//printMac(src)
-			//fmt.Print("dst: ")
-			//printMac(dst)
-			//fmt.Println("\n")
+		hexPrint(l2Hdr)
+		fmt.Println("")
+		dst = l2Hdr[0:5]
+		src = l2Hdr[6:11]
+		if _, ok := targList[src.String()]; ok {
+			fmt.Printf("src ping")
 		}
+		if _, ok := targList[dst.String()]; ok {
+			fmt.Printf("dst zing")
+		}
+		//fmt.Print("src: ")
+		//printMac(src)
+		//fmt.Print("dst: ")
+		//printMac(dst)
+		//fmt.Println("\n")
 	}
-	defer phandle.Close()
 }
+
