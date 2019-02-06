@@ -11,6 +11,7 @@ import (
 	"github.com/mdlayher/wifi"
 	"github.com/remyoudompheng/go-netlink/nl80211"
 	"log"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 const ETH_ALEN = 6
 
 type Station struct {
-	BSSID []byte
+	BSSID net.HardwareAddr
 	SSID string
 }
 
@@ -249,13 +250,12 @@ func getWhiteList() map[string]bool {
 	return wlist
 }
 
-func makeTargetList(stations []Station, wlist map[string]bool) map[[ETH_ALEN]byte]Station {
-	targets := map[[ETH_ALEN]byte]Station {}
+func makeTargetList(stations []Station, wlist map[string]bool) map[string]Station {
+
+	targets := map[string]Station {}
 	for _, v := range stations {
 		if _, ok := wlist[v.SSID]; !ok {
-			fmt.Println(ok)
-			bssid := [ETH_ALEN]byte{ v.BSSID[0], v.BSSID[1], v.BSSID[2], v.BSSID[3], v.BSSID[4], v.BSSID[5] }
-			targets[bssid] = v
+			targets[v.BSSID.String()] = v
 		}
 	}
 	return targets
@@ -307,22 +307,30 @@ func main() {
 		printMac(v.BSSID)
 	}
 	var snapLen int32 = 1024
-	var timeOut = 10 * time.Second
+	var timeOut = 1 * time.Second
 	phandle, err := pcap.OpenLive(iface.Name, snapLen, true, timeOut)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	packSrc := gopacket.NewPacketSource(phandle, phandle.LinkType())
+	var src net.HardwareAddr
+	var dst net.HardwareAddr
 	for packet := range packSrc.Packets() {
 		l2Hdr := packet.LinkLayer().LayerContents()
 		if len(l2Hdr) > 12 {
-			src := l2Hdr[0:6]
-			dst := l2Hdr[7:13]
-			fmt.Print("src: ")
-			printMac(src)
-			fmt.Print("dst: ")
-			printMac(dst)
-			fmt.Println("\n")
+			dst = l2Hdr[0:6]
+			src = l2Hdr[6:13]
+			if _, ok := targList[src.String()]; ok {
+				fmt.Printf("src ping")
+			}
+			if _, ok := targList[dst.String()]; ok {
+				fmt.Printf("dst zing")
+			}
+			//fmt.Print("src: ")
+			//printMac(src)
+			//fmt.Print("dst: ")
+			//printMac(dst)
+			//fmt.Println("\n")
 		}
 	}
 	defer phandle.Close()

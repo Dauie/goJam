@@ -1,5 +1,4 @@
 CodeForFun
 42Hackathon
 42Guests
-42US Student
 42US Staff
