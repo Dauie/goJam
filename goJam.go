@@ -24,26 +24,55 @@ func help() {
 }
 
 func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
+	var done bool = false
+	var failed bool = false
+
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
-	ifaceAttrib, err := encoder.Encode()
+	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
+	attribs, err := encoder.Encode()
 	if err != nil {
-		log.Panicln(err)
+		log.Panicln("genetlink.Encoder.Encode()", err)
 	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
 			Command: nl80211.CMD_TRIGGER_SCAN,
 			Version: fam.Version,
 		},
-		Data: ifaceAttrib,
+		Data: attribs,
 	}
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
-	msgs, err := conn.Execute(req, fam.ID, flags)
+	validateMsg, err := conn.Send(req, fam.ID, flags)
 	if err != nil {
-		log.Panicln("genetlink.Conn.Execute", err)
+		log.Panicln("genetlink.Conn.Send()", err)
 	}
-	for _, v := range msgs {
-		fmt.Println(v)
+	fmt.Println("Message sent: ", validateMsg)
+	for !done && !failed {
+		msgs, replies, err := conn.Receive()
+		if err != nil {
+			fmt.Println(err)
+		}
+		for mi, m := range msgs {
+			for ri, r := range replies {
+				fmt.Println("msg", mi, m)
+				fmt.Println("rep", ri, r)
+				switch m.Header.Command {
+				case nl80211.CMD_NEW_SCAN_RESULTS:
+					fmt.Println("GOT THE OK!")
+					done = true
+					break
+				case nl80211.CMD_SCAN_ABORTED:
+					failed = true
+					if err := triggerScan(conn, fam, iface); err != nil {
+						log.Panicln(err)
+					}
+					break
+				default:
+					fmt.Println("cmd type: ", m.Header.Command, " skipped")
+					continue
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -55,7 +84,7 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family) []genetlink.Mes
 			Version: fam.Version,
 		},
 	}
-	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump | netlink.HeaderFlagsAcknowledge
 	msgs, err := conn.Execute(req, fam.ID, flags)
 	if err != nil {
 		log.Panicln("genetlink.Conn.Execute()", err)
@@ -67,9 +96,9 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family) []genetlink.Mes
 }
 
 func getInterface(targetIface string) (* wifi.Interface, error) {
-	client, err := wifi.New()
 	var ret *wifi.Interface = nil
 
+	client, err := wifi.New()
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -117,7 +146,6 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 	return &fam, nil
 }
 
-
 func main() {
 	if len(os.Args) < 3 {
 		help()
@@ -140,6 +168,9 @@ func main() {
 		log.Fatalln(err)
 	}
 	scanMCID, err := getNL80211ScanMCID(fam)
+	if err != nil {
+		log.Fatalln("getNL80211ScanMCID()", err)
+	}
 	if err := conn.JoinGroup(scanMCID); err != nil {
 		log.Fatalln("genetlink.Conn.JoinGroup()", err)
 	}
