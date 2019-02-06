@@ -12,10 +12,7 @@ import (
 	"github.com/remyoudompheng/go-netlink/nl80211"
 )
 
-type Station struct {
-	BSSID string
-	SSID [6]uint
-}
+
 
 func help() {
 
@@ -48,51 +45,126 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	}
 	fmt.Println("Message sent: ", validateMsg)
 	for !done && !failed {
-		msgs, replies, err := conn.Receive()
+		msgs, _, err := conn.Receive()
 		if err != nil {
 			fmt.Println(err)
 		}
-		for mi, m := range msgs {
-			for ri, r := range replies {
-				fmt.Println("msg", mi, m)
-				fmt.Println("rep", ri, r)
-				switch m.Header.Command {
-				case nl80211.CMD_NEW_SCAN_RESULTS:
-					fmt.Println("GOT THE OK!")
-					done = true
-					break
-				case nl80211.CMD_SCAN_ABORTED:
-					failed = true
-					if err := triggerScan(conn, fam, iface); err != nil {
-						log.Panicln(err)
-					}
-					break
-				default:
-					fmt.Println("cmd type: ", m.Header.Command, " skipped")
-					continue
+		for _, m := range msgs {
+			switch m.Header.Command {
+			case nl80211.CMD_NEW_SCAN_RESULTS:
+				fmt.Println("")
+				done = true
+				break
+			case nl80211.CMD_SCAN_ABORTED:
+				failed = true
+				fmt.Println("SCAN ABORTED, trying again...")
+				if err := triggerScan(conn, fam, iface); err != nil {
+					log.Panicln(err)
 				}
+				break
+			default:
+				fmt.Println("cmd type: ", m.Header.Command, " skipped")
+				break
 			}
 		}
 	}
 	return nil
 }
 
-func getScanResults(conn *genetlink.Conn, fam *genetlink.Family) []genetlink.Message {
+type Station struct {
+	BSSID []byte
+	SSID string
+}
+
+func (s * Station) decodeBSSIE(b []byte) error {
+	fmt.Println("in BSSIE")
+	ad, err := netlink.NewAttributeDecoder(b)
+	if err != nil {
+		return errors.New("netlink.NewAttributeDecoder() " + err.Error())
+	}
+	for ad.Next() {
+		switch ad.Type() {
+		case nl80211.ATTR_SSID:
+			s.SSID = ad.String()
+			fmt.Printf("got SSID %s\n", s.SSID)
+			break
+		default:
+			fmt.Printf("BSSIE CODE: %02x\n",  ad.Type())
+			break
+		}
+	}
+	return nil
+}
+
+func (s * Station) decodeBSS(b []byte) error {
+	ad, err := netlink.NewAttributeDecoder(b)
+	if err != nil {
+		return errors.New("netlink.NewAttributeDecoder() " + err.Error())
+	}
+	for ad.Next() {
+		switch ad.Type() {
+		case nl80211.BSS_BSSID:
+			s.BSSID = ad.Bytes()
+			fmt.Printf("got BSSID\n")
+			break
+		case nl80211.BSS_INFORMATION_ELEMENTS:
+			ad.Do(s.decodeBSSIE)
+			break
+		default:
+			fmt.Printf("BSS CODE: %02x\n",  ad.Type())
+			break
+		}
+	}
+	return nil
+}
+
+func decodeScanResults(msgs []genetlink.Message) []Station {
+	var stations = new([]Station)
+	fmt.Println(len(msgs))
+	for i := 0; i < len(msgs); i++ {
+		ad, err := netlink.NewAttributeDecoder(msgs[i].Data)
+		if err != nil {
+			log.Panicln("netlink.NewAttributeeDecoder()", err)
+		}
+		var ap Station
+		for ad.Next() {
+			switch ad.Type() {
+			case nl80211.ATTR_BSS:
+				ad.Do(ap.decodeBSS)
+				break
+			default:
+				fmt.Printf(" %02x\n",  ad.Type())
+				break
+			}
+		}
+		fmt.Println("\nNew AP: ")
+		*stations = append(*stations, ap)
+	}
+	return *stations
+}
+func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) []genetlink.Message {
+//	var stations []Station
+
+	encoder := netlink.NewAttributeEncoder()
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
+	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
+	attribs, err := encoder.Encode()
+	if err != nil {
+		log.Panicln("genetlink.Encoder.Encode()", err)
+	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
 			Command: nl80211.CMD_GET_SCAN,
 			Version: fam.Version,
 		},
+		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump | netlink.HeaderFlagsAcknowledge
 	msgs, err := conn.Execute(req, fam.ID, flags)
 	if err != nil {
 		log.Panicln("genetlink.Conn.Execute()", err)
 	}
-	for _, v := range msgs {
-		fmt.Println(v)
-	}
-	return msgs
+	decodeScanResults(msgs)
+	return nil
 }
 
 func getInterface(targetIface string) (* wifi.Interface, error) {
@@ -177,7 +249,7 @@ func main() {
 	if err := triggerScan(conn, fam, iface); err != nil {
 		log.Fatalln(err)
 	}
-	stations := getScanResults(conn, fam)
+	stations := getScanResults(conn, fam, iface)
 	for _, v := range stations {
 		fmt.Println(v)
 	}
