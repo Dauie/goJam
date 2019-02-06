@@ -73,33 +73,28 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 
 type Station struct {
 	BSSID []byte
-	SSID string
+	SSID []byte
 }
 
-func (s * Station) decodeBSSIE(b []byte) error {
-	fmt.Println("in BSSIE")
+func (s *Station) DecodeBSSIE(b []byte) error {
 	ad, err := netlink.NewAttributeDecoder(b)
 	if err != nil {
-		return errors.New("netlink.NewAttributeDecoder() " + err.Error())
+		log.Panicln("netlink.NewAttributeDecoder() " + err.Error())
 	}
 	for ad.Next() {
 		switch ad.Type() {
-		case nl80211.ATTR_SSID:
-			s.SSID = ad.String()
-			fmt.Printf("got SSID %s\n", s.SSID)
-			break
 		default:
-			fmt.Printf("BSSIE CODE: %02x\n",  ad.Type())
+			fmt.Println(ad.Type())
 			break
 		}
 	}
 	return nil
 }
 
-func (s * Station) decodeBSS(b []byte) error {
+func (s * Station) DecodeBSS(b []byte) error {
 	ad, err := netlink.NewAttributeDecoder(b)
 	if err != nil {
-		return errors.New("netlink.NewAttributeDecoder() " + err.Error())
+		log.Panicln("netlink.NewAttributeDecoder() " + err.Error())
 	}
 	for ad.Next() {
 		switch ad.Type() {
@@ -108,7 +103,7 @@ func (s * Station) decodeBSS(b []byte) error {
 			fmt.Printf("got BSSID\n")
 			break
 		case nl80211.BSS_INFORMATION_ELEMENTS:
-			ad.Do(s.decodeBSSIE)
+			ad.Do(s.DecodeBSSIE)
 			break
 		default:
 			fmt.Printf("BSS CODE: %02x\n",  ad.Type())
@@ -130,7 +125,7 @@ func decodeScanResults(msgs []genetlink.Message) []Station {
 		for ad.Next() {
 			switch ad.Type() {
 			case nl80211.ATTR_BSS:
-				ad.Do(ap.decodeBSS)
+				ad.Do(ap.DecodeBSS)
 				break
 			default:
 				fmt.Printf(" %02x\n",  ad.Type())
