@@ -14,6 +14,16 @@ import (
 
 const ETH_ALEN = 6
 
+type Client struct {
+	BSSID []byte
+}
+
+type Station struct {
+	BSSID []byte
+	SSID string
+	Clients []Client
+}
+
 func help() {
 
 	fmt.Printf("useage: ./%s <interface> <whitelist>\n", os.Args[0])
@@ -39,11 +49,10 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 		Data: attribs,
 	}
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
-	validateMsg, err := conn.Send(req, fam.ID, flags)
+	_, err = conn.Send(req, fam.ID, flags)
 	if err != nil {
 		log.Panicln("genetlink.Conn.Send()", err)
 	}
-	fmt.Println("Message sent: ", validateMsg)
 	for !done && !failed {
 		msgs, _, err := conn.Receive()
 		if err != nil {
@@ -63,7 +72,6 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 				}
 				break
 			default:
-				fmt.Println("cmd type: ", m.Header.Command, " skipped")
 				break
 			}
 		}
@@ -71,10 +79,6 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	return nil
 }
 
-type Station struct {
-	BSSID []byte
-	SSID string
-}
 
 func hexPrint(b []byte) {
 	for e, v := range b {
@@ -214,7 +218,10 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 
 func printStations(aps []Station) {
 	for _, v  := range aps {
-		fmt.Printf("%s -", v.SSID)
+		if v.SSID == "" {
+			v.SSID = "No broadcast"
+		}
+		fmt.Printf("%s - ", v.SSID)
 		for i := 0; i < ETH_ALEN; i++ {
 			if i < ETH_ALEN - 1 {
 				fmt.Printf("%02x:", v.BSSID[i])
@@ -258,4 +265,5 @@ func main() {
 	}
 	stations  := getScanResults(conn, fam, iface)
 	printStations(stations)
+	//TODO get list of subscribers for each station
 }
