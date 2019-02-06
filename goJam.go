@@ -32,7 +32,6 @@ func help() {
 
 func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
 	var done = false
-	var failed = false
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
@@ -54,7 +53,7 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	if err != nil {
 		return errors.New("genetlink.Conn.Send()" + err.Error())
 	}
-	for !done && !failed {
+	for !done {
 		msgs, _, err := conn.Receive()
 		if err != nil {
 			fmt.Println(err)
@@ -62,11 +61,9 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 		for _, m := range msgs {
 			switch m.Header.Command {
 			case nl80211.CMD_NEW_SCAN_RESULTS:
-				fmt.Println("")
 				done = true
 				break
 			case nl80211.CMD_SCAN_ABORTED:
-				failed = true
 				fmt.Println("SCAN ABORTED, trying again...")
 				return triggerScan(conn, fam, iface)
 			default:
@@ -121,8 +118,8 @@ func (s * Station) DecodeBSS(b []byte) error {
 
 func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
 	var stations = []Station{}
-	for i := 0; i < len(msgs); i++ {
-		ad, err := netlink.NewAttributeDecoder(msgs[i].Data)
+	for _, v := range msgs {
+		ad, err := netlink.NewAttributeDecoder(v.Data)
 		if err != nil {
 			return nil, errors.New("netlink.NewAttributeeDecoder()" + err.Error())
 		}
