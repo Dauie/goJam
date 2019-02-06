@@ -4,17 +4,18 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log"
+	"net"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
 	"github.com/mdlayher/wifi"
 	"github.com/remyoudompheng/go-netlink/nl80211"
-	"log"
-	"net"
-	"os"
-	"strings"
-	"time"
 )
 
 const ETH_ALEN = 6
