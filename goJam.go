@@ -22,6 +22,8 @@ const NO_SSID = "SSID not broadcasted"
 
 const ETH_ALEN = 6
 
+const DEF_PCAP_BUFFLEN = 2 * 1024 * 1024
+
 type Station struct {
 	BSSID net.HardwareAddr
 	SSID string
@@ -328,59 +330,54 @@ func main() {
 	for _, v := range targList {
 		fmt.Printf("target: %s - %s\n", v.SSID, v.BSSID.String())
 	}
-	//var snapLen = 1024
-	//var timeOut = 30 * time.Second
-	//inactive, err := pcap.NewInactiveHandle(iface.Name)
-	//if err != nil {
-	//	log.Fatalln("pcap.NewInactiveHandle() ", err)
-	//}
-	//if err := inactive.SetPromisc(true); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//if err := inactive.SetRFMon(true); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//if err := inactive.SetImmediateMode(true); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//if err := inactive.SetSnapLen(256); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//if err := inactive.SetBufferSize(os.Getpagesize() * 3); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//if err := inactive.SetTimeout(time.Second * 10); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//handle, err := inactive.Activate()
-	//if err != nil {
-	//	log.Fatalln("pcap.InactiveHandle.Activate() ", err)
-	//}
-	//inactive.CleanUp()
-	handle, err := pcap.OpenLive(iface.Name, 1024, true, time.Second * 15)
+
+	inactive, err := pcap.NewInactiveHandle(iface.Name)
+	defer inactive.CleanUp()
 	if err != nil {
+		log.Fatalln("pcap.NewInactiveHandle() ", err)
+	}
+	if err := inactive.SetBufferSize(DEF_PCAP_BUFFLEN); err != nil {
 		log.Fatalln(err)
 	}
+	if err := inactive.SetSnapLen(512); err != nil {
+		log.Fatalln(err)
+	}
+	if err := inactive.SetTimeout(time.Second * 30); err != nil {
+		log.Fatalln(err)
+	}
+	if err := inactive.SetPromisc(true); err != nil {
+		log.Fatalln(err)
+	}
+	if err := inactive.SetRFMon(true); err != nil {
+		log.Fatalln(err)
+	}
+
+	handle, err := inactive.Activate()
+	if err != nil {
+		log.Fatalln("pcap.InactiveHandle.Activate() ", err)
+	}
+
+	//handle, err := pcap.OpenLive(iface.Name, 1024, true, time.Second * 15)
+	//if err != nil {
+	//	log.Fatalln(err)
+	//}
 	defer handle.Close()
 	//if err := setFilterForTargets(handle, targList); err != nil {
 	//	log.Panicln(err)
 	//}
 	packSrc := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packSrc.Packets() {
-		eth := packet.Layer(layers.LayerTypeEthernet)
-		ethPkt := eth.(*layers.Ethernet)
-		fmt.Printf("dst: %s | src %s\n", ethPkt.DstMAC.String(), ethPkt.SrcMAC.String())
-		if _, ok := targList[ethPkt.SrcMAC.String()]; ok {
-			fmt.Printf("src ping")
+		ethLayer := packet.Layer(layers.LayerTypeEthernet)
+		if ethLayer != nil {
+			ethHdr := ethLayer.(*layers.Ethernet)
+			fmt.Printf("dst: %s | src %s\n", ethHdr.DstMAC.String(), ethHdr.SrcMAC.String())
+			if _, ok := targList[ethHdr.SrcMAC.String()]; ok {
+				fmt.Printf("src ping")
+			}
+			if _, ok := targList[ethHdr.DstMAC.String()]; ok {
+				fmt.Printf("dst zing")
+			}
 		}
-		if _, ok := targList[ethPkt.DstMAC.String()]; ok {
-			fmt.Printf("dst zing")
-		}
-		//fmt.Print("src: ")
-		//printMac(src)
-		//fmt.Print("dst: ")
-		//printMac(dst)
-		//fmt.Println("\n")
 	}
 }
 
