@@ -357,12 +357,11 @@ func main() {
 	//	log.Fatalln("pcap.InactiveHandle.Activate() ", err)
 	//}
 	//inactive.CleanUp()
-	handle, err := pcap.OpenLive(iface.Name, 256, true, time.Second * 10)
+	handle, err := pcap.OpenLive(iface.Name, 1024, true, time.Second * 15)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer handle.Close()
-
 	//if err := setFilterForTargets(handle, targList); err != nil {
 	//	log.Panicln(err)
 	//}
@@ -370,6 +369,7 @@ func main() {
 	for packet := range packSrc.Packets() {
 		eth := packet.Layer(layers.LayerTypeEthernet)
 		ethPkt := eth.(*layers.Ethernet)
+		fmt.Printf("dst: %s | src %s\n", ethPkt.DstMAC.String(), ethPkt.SrcMAC.String())
 		if _, ok := targList[ethPkt.SrcMAC.String()]; ok {
 			fmt.Printf("src ping")
 		}
