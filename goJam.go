@@ -4,18 +4,18 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"log"
-	"net"
-	"os"
-	"strings"
-	"time"
-
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
 	"github.com/mdlayher/wifi"
 	"github.com/remyoudompheng/go-netlink/nl80211"
+	"log"
+	"net"
+	"os"
+	"strings"
+	"time"
 )
 
 const NO_SSID = "SSID not broadcasted"
@@ -328,29 +328,52 @@ func main() {
 	for _, v := range targList {
 		fmt.Printf("target: %s - %s\n", v.SSID, v.BSSID.String())
 	}
-	var snapLen int32 = 1024
-	var timeOut = 1 * time.Second
-	phandle, err := pcap.OpenLive(iface.Name, snapLen, true, timeOut)
-	defer phandle.Close()
+	//var snapLen = 1024
+	//var timeOut = 30 * time.Second
+	//inactive, err := pcap.NewInactiveHandle(iface.Name)
+	//if err != nil {
+	//	log.Fatalln("pcap.NewInactiveHandle() ", err)
+	//}
+	//if err := inactive.SetPromisc(true); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//if err := inactive.SetRFMon(true); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//if err := inactive.SetImmediateMode(true); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//if err := inactive.SetSnapLen(256); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//if err := inactive.SetBufferSize(os.Getpagesize() * 3); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//if err := inactive.SetTimeout(time.Second * 10); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//handle, err := inactive.Activate()
+	//if err != nil {
+	//	log.Fatalln("pcap.InactiveHandle.Activate() ", err)
+	//}
+	//inactive.CleanUp()
+	handle, err := pcap.OpenLive(iface.Name, 256, true, time.Second * 10)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	if err := setFilterForTargets(phandle, targList); err != nil {
-		log.Panicln(err)
-	}
-	packSrc := gopacket.NewPacketSource(phandle, phandle.LinkType())
-	var src net.HardwareAddr
-	var dst net.HardwareAddr
+	defer handle.Close()
+
+	//if err := setFilterForTargets(handle, targList); err != nil {
+	//	log.Panicln(err)
+	//}
+	packSrc := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packSrc.Packets() {
-		l2Hdr := packet.LinkLayer().LayerContents()
-		hexPrint(l2Hdr)
-		fmt.Println("")
-		dst = l2Hdr[0:5]
-		src = l2Hdr[6:11]
-		if _, ok := targList[src.String()]; ok {
+		eth := packet.Layer(layers.LayerTypeEthernet)
+		ethPkt := eth.(*layers.Ethernet)
+		if _, ok := targList[ethPkt.SrcMAC.String()]; ok {
 			fmt.Printf("src ping")
 		}
-		if _, ok := targList[dst.String()]; ok {
+		if _, ok := targList[ethPkt.DstMAC.String()]; ok {
 			fmt.Printf("dst zing")
 		}
 		//fmt.Print("src: ")
