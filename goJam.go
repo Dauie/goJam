@@ -42,7 +42,7 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
 	attribs, err := encoder.Encode()
 	if err != nil {
-		return errors.New("genetlink.Encoder.Encode()" + err.Error())
+		return errors.New("genetlink.Encoder.Encode() " + err.Error())
 	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
@@ -54,7 +54,7 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.Send(req, fam.ID, flags)
 	if err != nil {
-		return errors.New("genetlink.Conn.Send()" + err.Error())
+		return errors.New("genetlink.Conn.Send() " + err.Error())
 	}
 	for !done {
 		msgs, _, err := conn.Receive()
@@ -128,7 +128,7 @@ func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
 	for _, v := range msgs {
 		ad, err := netlink.NewAttributeDecoder(v.Data)
 		if err != nil {
-			return nil, errors.New("netlink.NewAttributeeDecoder()" + err.Error())
+			return nil, errors.New("netlink.NewAttributeeDecoder() " + err.Error())
 		}
 		var ap Station
 		for ad.Next() {
@@ -152,7 +152,7 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Int
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
 	attribs, err := encoder.Encode()
 	if err != nil {
-		return nil, errors.New("genetlink.Encoder.Encode()" + err.Error())
+		return nil, errors.New("genetlink.Encoder.Encode() " + err.Error())
 	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
@@ -163,7 +163,7 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Int
 	}
 	msgs, err := conn.Execute(req, fam.ID, flags)
 	if err != nil {
-		return nil, errors.New("genetlink.Conn.Execute()" + err.Error())
+		return nil, errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
 	return decodeScanResults(msgs)
 }
@@ -182,7 +182,7 @@ func getInterface(targetIface string) (* wifi.Interface, error) {
 	}()
 	ifaces, err := client.Interfaces()
 	if err != nil {
-		return nil, errors.New("wifi.Client.Interfaces()" + err.Error())
+		return nil, errors.New("wifi.Client.Interfaces() " + err.Error())
 	}
 	for _, v := range ifaces {
 		if v.Name == targetIface {
@@ -265,6 +265,25 @@ func makeTargetList(stations []Station, wlist map[string]bool) map[string]Statio
 	return targets
 }
 
+func setFilterForTargets(handle *pcap.Handle, targetList map[string]Station) error {
+	var bpfExpr string
+	var i = 0
+	var ln = len(targetList) - 1
+
+	for _, v := range targetList {
+		bpfExpr = bpfExpr + fmt.Sprintf("ether host %s", v.BSSID.String())
+		if i < ln {
+			i++
+			bpfExpr = bpfExpr + " or "
+		}
+	}
+	fmt.Println(bpfExpr)
+	if err := handle.SetBPFFilter(bpfExpr); err != nil {
+		return errors.New("pcap.Handle.SetPBFFilter() " + err.Error())
+	}
+	return nil
+}
+
 func main() {
 	if len(os.Args) < 3 {
 		help()
@@ -275,11 +294,11 @@ func main() {
 	}
 	conn, err := genetlink.Dial(nil)
 	if err != nil {
-		log.Fatalln("genetlink.Dial()", err)
+		log.Fatalln("genetlink.Dial() ", err)
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			log.Fatalln("genetlink.Conn.Close()", err)
+			log.Fatalln("genetlink.Conn.Close() ", err)
 		}
 	}()
 	fam, err := getNL80211Family(conn)
@@ -291,14 +310,14 @@ func main() {
 		log.Fatalln("getNL80211ScanMCID()", err)
 	}
 	if err := conn.JoinGroup(scanMCID); err != nil {
-		log.Fatalln("genetlink.Conn.JoinGroup()", err)
+		log.Fatalln("genetlink.Conn.JoinGroup() ", err)
 	}
 	if err := triggerScan(conn, fam, iface); err != nil {
 		log.Fatalln(err)
 	}
 	stations, err := getScanResults(conn, fam, iface)
 	if err != nil {
-		log.Fatalln("getScanResults()", err)
+		log.Fatalln("getScanResults() ", err)
 	}
 	printStations(stations)
 	wlist := getWhiteList()
@@ -307,8 +326,7 @@ func main() {
 		fmt.Println(k)
 	}
 	for _, v := range targList {
-		fmt.Printf("target: %s", v.SSID)
-		printMac(v.BSSID)
+		fmt.Printf("target: %s - %s\n", v.SSID, v.BSSID.String())
 	}
 	var snapLen int32 = 1024
 	var timeOut = 1 * time.Second
@@ -316,6 +334,9 @@ func main() {
 	defer phandle.Close()
 	if err != nil {
 		log.Fatalln(err)
+	}
+	if err := setFilterForTargets(phandle, targList); err != nil {
+		log.Panicln(err)
 	}
 	packSrc := gopacket.NewPacketSource(phandle, phandle.LinkType())
 	var src net.HardwareAddr
