@@ -4,24 +4,27 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log"
+	"net"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
 	"github.com/mdlayher/wifi"
 	"github.com/remyoudompheng/go-netlink/nl80211"
-	"log"
-	"net"
-	"os"
-	"strings"
-	"time"
 )
 
-const NO_SSID = "SSID not broadcasted"
+const NoSSID = "SSID not broadcasted"
 
-const ETH_ALEN = 6
+const EthAlen = 6
 
-const DEF_PCAP_BUFFLEN = 2 * 1024 * 1024
+const DefPcapBufLen = 2 * 1024 * 1024
+
+const MinEthFrameLen = 64
 
 type Station struct {
 	BSSID net.HardwareAddr
@@ -29,7 +32,6 @@ type Station struct {
 }
 
 func help() {
-
 	fmt.Printf("useage: ./%s <interface> <whitelist>\n", os.Args[0])
 	os.Exit(1)
 }
@@ -78,20 +80,6 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	return nil
 }
 
-
-func hexPrint(b []byte) {
-	for e, v := range b {
-		fmt.Printf("%02x ", v)
-		if (e + 1) % 4 == 0 {
-			fmt.Printf("\t")
-		}
-		if (e + 1) % 16 == 0 {
-			fmt.Printf("\n")
-		}
-	}
-	fmt.Printf("\n")
-}
-
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
 // or maybe im just an idiot
 func (s *Station) getSSIDFromBSSIE(b []byte) error {
@@ -99,7 +87,7 @@ func (s *Station) getSSIDFromBSSIE(b []byte) error {
 	if ssidLen != 0 {
 		s.SSID = strings.TrimSpace(string(b[2:ssidLen + 2]))
 	} else {
-		s.SSID = NO_SSID
+		s.SSID = NoSSID
 	}
 	return nil
 }
@@ -220,28 +208,7 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 	return &fam, nil
 }
 
-func printMac(bssid []byte) {
-	for i := 0; i < ETH_ALEN; i++ {
-		if i < ETH_ALEN - 1 {
-			fmt.Printf("%02x:", bssid[i])
-		} else {
-			fmt.Printf("%02x\n", bssid[i])
-		}
-	}
-}
-
-func printStations(aps []Station) {
-	for _, v  := range aps {
-		if v.SSID == "" {
-			v.SSID = "No broadcast"
-		}
-		fmt.Printf("%s - ", v.SSID)
-		bssid := v.BSSID
-		printMac(bssid)
-	}
-}
-
-func getWhiteList() map[string]bool {
+func getWhiteListFromFile() map[string]bool {
 	wlist := map[string]bool{}
 	file, err := os.Open(os.Args[2])
 	if err != nil {
@@ -255,11 +222,11 @@ func getWhiteList() map[string]bool {
 	return wlist
 }
 
-func makeTargetList(stations []Station, wlist map[string]bool) map[string]Station {
-
+func makeBSSIDMap(stations []Station, wlist map[string]bool) map[string]Station {
 	targets := map[string]Station {}
 	for _, v := range stations {
 		if _, ok := wlist[v.SSID]; !ok {
+			fmt.Println(v.BSSID.String())
 			targets[v.BSSID.String()] = v
 		}
 	}
@@ -296,7 +263,7 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	if err != nil {
 		log.Fatalln("pcap.NewInactiveHandle() ", err)
 	}
-	if err := inactive.SetBufferSize(DEF_PCAP_BUFFLEN); err != nil {
+	if err := inactive.SetBufferSize(DefPcapBufLen); err != nil {
 		log.Fatalln(err)
 	}
 	if err := inactive.SetSnapLen(256); err != nil {
@@ -325,6 +292,11 @@ func main() {
 		log.Fatalln(err)
 	}
 	conn, err := genetlink.Dial(nil)
+	defer func(){
+		if err := conn.Close(); err != nil {
+			log.Fatalln("genetlink.Conn.Close() ", err)
+		}
+	}()
 	if err != nil {
 		log.Fatalln("genetlink.Dial() ", err)
 	}
@@ -346,38 +318,38 @@ func main() {
 	if err != nil {
 		log.Fatalln("getScanResults() ", err)
 	}
-	if err := conn.Close(); err != nil {
-		log.Fatalln("genetlink.Conn.Close() ", err)
-	}
-	printStations(stations)
-	wlist := getWhiteList()
-	targList := makeTargetList(stations, wlist)
+
+	wlist := getWhiteListFromFile()
+	bssidMap := makeBSSIDMap(stations, wlist)
 	for k := range wlist {
 		fmt.Println(k)
 	}
-	for _, v := range targList {
-		fmt.Printf("target: %s - %s\n", v.SSID, v.BSSID.String())
+	for _, v := range bssidMap {
+		fmt.Printf("target broadcasing aps: %s - %s\n", v.SSID, v.BSSID.String())
 	}
 	handle, err := setupPcapHandle(iface)
 	if err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
 	}
 	defer handle.Close()
-	if err := setFilterForTargets(handle, iface); err != nil {
-		log.Panicln(err)
-	}
+	//if err := setFilterForTargets(handle, iface); err != nil {
+	//	log.Panicln(err)
+	//}
 	packSrc := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packSrc.Packets() {
 		data := packet.Data()
 		fmt.Println("")
-		dstMac := net.HardwareAddr(data[:5])
-		srcMac := net.HardwareAddr(data[6:11])
-		fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
-		if _, ok := targList[srcMac.String()]; ok {
-			fmt.Printf("src ping")
-		}
-		if _, ok := targList[dstMac.String()]; ok {
+		if len(data) >= MinEthFrameLen {
+			dstMac := net.HardwareAddr(data[:6])
+			srcMac := net.HardwareAddr(data[6:12])
+
+			//fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
+			if _, ok := bssidMap[srcMac.String()]; ok {
+				fmt.Printf("src ping")
+			}
+			if _, ok := bssidMap[dstMac.String()]; ok {
 				fmt.Printf("dst zing")
+			}
 		}
 	}
 }
