@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/gopacket"
@@ -25,6 +27,8 @@ const EthAlen = 6
 const DefPcapBufLen = 2 * 1024 * 1024
 
 const MinEthFrameLen = 64
+
+var QuitSIGINT = false
 
 type Type interface{}
 
@@ -53,6 +57,7 @@ func (l* List)Add(key string, val Value) {
 type Station struct {
 	BSSID net.HardwareAddr
 	SSID string
+	Freq uint32
 }
 
 func help() {
@@ -60,7 +65,7 @@ func help() {
 	os.Exit(1)
 }
 
-func setDeviceChannel(freq uint32, conn genetlink.Conn, ifa wifi.Interface, fam genetlink.Family) error {
+func setDeviceChannel(freq uint32, conn *genetlink.Conn, ifa *wifi.Interface, fam *genetlink.Family) error {
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(ifa.Index))
 	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, freq)
@@ -75,7 +80,7 @@ func setDeviceChannel(freq uint32, conn genetlink.Conn, ifa wifi.Interface, fam 
 		},
 		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.Execute(req, fam.ID, flags)
 	if err != nil {
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
@@ -152,6 +157,8 @@ func (s * Station) DecodeBSS(b []byte) error {
 		case nl80211.BSS_INFORMATION_ELEMENTS:
 			ad.Do(s.getSSIDFromBSSIE)
 			break
+		case nl80211.BSS_FREQUENCY:
+			s.Freq = ad.Uint32()
 		default:
 			break
 		}
@@ -317,7 +324,7 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	if err := inactive.SetSnapLen(256); err != nil {
 		log.Fatalln(err)
 	}
-	if err := inactive.SetTimeout(time.Second * 5); err != nil {
+	if err := inactive.SetTimeout(time.Second * 10); err != nil {
 		log.Fatalln(err)
 	}
 	if err := inactive.SetPromisc(false); err != nil {
@@ -356,6 +363,14 @@ func main() {
 	if len(os.Args) < 3 {
 		help()
 	}
+	sigc := make(chan os.Signal, 1)
+	go func () {
+		s := <-sigc
+		if s == syscall.SIGINT {
+			QuitSIGINT = true
+		}
+	}()
+	signal.Notify(sigc, syscall.SIGINT)
 	iface, err := getInterface(os.Args[1])
 	if err != nil {
 		log.Fatalln(err)
@@ -406,33 +421,53 @@ func main() {
 	//	log.Panicln(err)
 	//}
 
-	//TODO hop frequencies
 	//key: Client's Mac | value: OldMac
 	var cliWatchList List
 	var KosAPMacs List
+	sInx := 0
 	packSrc := gopacket.NewPacketSource(handle, handle.LinkType())
-	for packet := range packSrc.Packets() {
-		data := packet.Data()
-		fmt.Print(".")
-		if len(data) >= MinEthFrameLen {
-			dstMac := net.HardwareAddr(data[:6])
-			srcMac := net.HardwareAddr(data[6:12])
+	lastChanSwitch := time.Now()
+	for !QuitSIGINT {
+		packet, err := packSrc.NextPacket()
+		if err != nil {
+			log.Print("gopacket.PacketSource.NextPacket() ", err.Error())
+		}
+		if packet != nil {
+			data := packet.Data()
+			fmt.Print(".")
+			if len(data) >= MinEthFrameLen {
+				dstMac := net.HardwareAddr(data[:6])
+				srcMac := net.HardwareAddr(data[6:12])
 
-			//fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
-			if ok := checkComms(srcMac, dstMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
+				//fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
+				if ok := checkComms(srcMac, dstMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
 
-			}
-			if ok := checkComms(dstMac, srcMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
+				} else if ok := checkComms(dstMac, srcMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
 
+				} else if _, ok := apWatchList.Get(srcMac.String()); ok {
+					fmt.Printf("\nadded client to watch list %s\n", dstMac.String())
+					cliWatchList.Add(dstMac.String(), srcMac.String())
+				} else if _, ok := apWatchList.Get(dstMac.String()); ok {
+					fmt.Printf("\nadded client to watch list %s\n", srcMac.String())
+					cliWatchList.Add(srcMac.String(), dstMac.String())
+				}
 			}
-			if _, ok := apWatchList.Get(srcMac.String()); ok {
-				fmt.Printf("\nadded client to watch list %s\n", dstMac.String())
-				cliWatchList.Add(dstMac.String(), srcMac.String())
-				continue
-			}
-			if _, ok := apWatchList.Get(dstMac.String()); ok {
-				fmt.Printf("\nadded client to watch list %s\n", srcMac.String())
-				cliWatchList.Add(srcMac.String(), dstMac.String())
+			if time.Since(lastChanSwitch) > time.Second * 10 {
+				i := 0
+				for _, v := range apWatchList.contents {
+					if i == sInx {
+						station := v.(Station)
+						if err := setDeviceChannel(station.Freq, conn, iface, fam); err != nil {
+							log.Printf("error changing frequency %s", err.Error())
+						} else {
+							log.Printf("chan switched to %dMhz", station.Freq)
+						}
+						sInx++
+						lastChanSwitch = time.Now()
+						break
+					}
+					i++
+				}
 			}
 		}
 	}
