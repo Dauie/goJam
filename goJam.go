@@ -18,13 +18,37 @@ import (
 	"github.com/remyoudompheng/go-netlink/nl80211"
 )
 
-const NoSSID = "SSID not broadcasted"
+const NoSSID = "SSID_NO_BROADCAST"
 
 const EthAlen = 6
 
 const DefPcapBufLen = 2 * 1024 * 1024
 
 const MinEthFrameLen = 64
+
+type Type interface{}
+
+type Value Type
+
+type List struct {
+	contents map[string]Value
+}
+
+func (l* List)Get(key string) (Value, bool){
+	val, ok := l.contents[key]
+	return val, ok
+}
+
+func (l* List)Del(key string){
+	delete(l.contents, key)
+}
+
+func (l* List)Add(key string, val Value) {
+	if l.contents == nil {
+		l.contents = make(map[string]Value)
+	}
+	l.contents[key] = val
+}
 
 type Station struct {
 	BSSID net.HardwareAddr
@@ -34,6 +58,29 @@ type Station struct {
 func help() {
 	fmt.Printf("useage: ./%s <interface> <whitelist>\n", os.Args[0])
 	os.Exit(1)
+}
+
+func setDeviceChannel(freq uint32, conn genetlink.Conn, ifa wifi.Interface, fam genetlink.Family) error {
+	encoder := netlink.NewAttributeEncoder()
+	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(ifa.Index))
+	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, freq)
+	attribs, err := encoder.Encode()
+	if err != nil {
+		return errors.New("genetlink.Encoder.Encode() " + err.Error())
+	}
+	req := genetlink.Message {
+		Header: genetlink.Header {
+			Command: nl80211.CMD_SET_CHANNEL,
+			Version: fam.Version,
+		},
+		Data: attribs,
+	}
+	flags := netlink.HeaderFlagsRequest
+	_, err = conn.Execute(req, fam.ID, flags)
+	if err != nil {
+		return errors.New("genetlink.Conn.Execute() " + err.Error())
+	}
+	return nil
 }
 
 func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
@@ -208,8 +255,9 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 	return &fam, nil
 }
 
-func getWhiteListFromFile() map[string]bool {
-	wlist := map[string]bool{}
+func getWhiteListFromFile() List {
+	var whiteList List
+
 	file, err := os.Open(os.Args[2])
 	if err != nil {
 		log.Panicln()
@@ -217,20 +265,20 @@ func getWhiteListFromFile() map[string]bool {
 	fscanner := bufio.NewScanner(file)
 	for fscanner.Scan() {
 		ssid := strings.TrimSpace(fscanner.Text())
-		wlist[ssid] = true
+		whiteList.Add(ssid, true)
 	}
-	return wlist
+	return whiteList
 }
 
-func makeBSSIDMap(stations []Station, wlist map[string]bool) map[string]Station {
-	targets := map[string]Station {}
+func makeApWatchList(stations []Station, whiteList List) List {
+	var apWatch List
 	for _, v := range stations {
-		if _, ok := wlist[v.SSID]; !ok {
+		if _, ok := whiteList.Get(v.SSID); !ok {
 			fmt.Println(v.BSSID.String())
-			targets[v.BSSID.String()] = v
+			apWatch.Add(v.BSSID.String(), v)
 		}
 	}
-	return targets
+	return apWatch
 }
 
 func resetKernelFilter(handle *pcap.Handle) {
@@ -272,6 +320,9 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	if err := inactive.SetTimeout(time.Second * 5); err != nil {
 		log.Fatalln(err)
 	}
+	if err := inactive.SetPromisc(false); err != nil {
+		log.Fatalln(err)
+	}
 	if err := inactive.SetRFMon(true); err != nil {
 		log.Fatalln(err)
 	}
@@ -282,6 +333,24 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	return handle, nil
 }
 
+func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List, aps *List, kosAPs *List ) bool {
+	if v, ok := clients.Get(src.String()); ok {
+		oldMac := v.(string)
+		if dst.String() != oldMac {
+			v, _ := aps.Get(oldMac)
+			s := v.(Station)
+			ap := Station{
+				SSID:  s.SSID,
+				BSSID: dst,
+			}
+			kosAPs.Add(dst.String(), ap)
+			clients.Del(src.String())
+			fmt.Printf("\nKill on site mac added: %s\n", dst.String())
+			return true
+		}
+	}
+	return false
+}
 
 func main() {
 	if len(os.Args) < 3 {
@@ -320,12 +389,13 @@ func main() {
 	}
 
 	wlist := getWhiteListFromFile()
-	bssidMap := makeBSSIDMap(stations, wlist)
-	for k := range wlist {
+	apWatchList := makeApWatchList(stations, wlist)
+	for k := range wlist.contents {
 		fmt.Println(k)
 	}
-	for _, v := range bssidMap {
-		fmt.Printf("target broadcasing aps: %s - %s\n", v.SSID, v.BSSID.String())
+	for _, v := range apWatchList.contents {
+		s := v.(Station)
+		fmt.Printf("target broadcasing aps: %s - %s\n", s.SSID, s.BSSID.String())
 	}
 	handle, err := setupPcapHandle(iface)
 	if err != nil {
@@ -335,20 +405,34 @@ func main() {
 	//if err := setFilterForTargets(handle, iface); err != nil {
 	//	log.Panicln(err)
 	//}
+
+	//TODO hop frequencies
+	//key: Client's Mac | value: OldMac
+	var cliWatchList List
+	var KosAPMacs List
 	packSrc := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packSrc.Packets() {
 		data := packet.Data()
-		fmt.Println("")
+		fmt.Print(".")
 		if len(data) >= MinEthFrameLen {
 			dstMac := net.HardwareAddr(data[:6])
 			srcMac := net.HardwareAddr(data[6:12])
 
 			//fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
-			if _, ok := bssidMap[srcMac.String()]; ok {
-				fmt.Printf("src ping")
+			if ok := checkComms(srcMac, dstMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
+
 			}
-			if _, ok := bssidMap[dstMac.String()]; ok {
-				fmt.Printf("dst zing")
+			if ok := checkComms(dstMac, srcMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
+
+			}
+			if _, ok := apWatchList.Get(srcMac.String()); ok {
+				fmt.Printf("\nadded client to watch list %s\n", dstMac.String())
+				cliWatchList.Add(dstMac.String(), srcMac.String())
+				continue
+			}
+			if _, ok := apWatchList.Get(dstMac.String()); ok {
+				fmt.Printf("\nadded client to watch list %s\n", srcMac.String())
+				cliWatchList.Add(srcMac.String(), dstMac.String())
 			}
 		}
 	}
