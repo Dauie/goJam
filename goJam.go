@@ -4,6 +4,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/dauie/go-netlink/nl80211"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/pcap"
+	"github.com/mdlayher/genetlink"
+	"github.com/mdlayher/netlink"
+	"github.com/mdlayher/wifi"
 	"log"
 	"net"
 	"os"
@@ -11,13 +17,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
-	"github.com/mdlayher/genetlink"
-	"github.com/mdlayher/netlink"
-	"github.com/mdlayher/wifi"
-	"github.com/remyoudompheng/go-netlink/nl80211"
 )
 
 const NoSSID = "SSID_NO_BROADCAST"
@@ -80,10 +79,39 @@ func setDeviceChannel(freq uint32, conn *genetlink.Conn, ifa *wifi.Interface, fa
 		},
 		Data: attribs,
 	}
+	flags := netlink.HeaderFlagsRequest
+	_, err = conn.Execute(req, fam.ID, flags)
+	if err != nil {
+		return errors.New("genetlink.Conn.Send() " + err.Error())
+	}
+	fmt.Println("changed freq")
+	return nil
+}
+
+func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
+	encoder := netlink.NewAttributeEncoder()
+	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
+	attribs, err := encoder.Encode()
+	if err != nil {
+		return errors.New("genetlink.Encoder.Encode() " + err.Error())
+	}
+	req := genetlink.Message {
+		Header: genetlink.Header {
+			Command: nl80211.CMD_ABORT_SCAN,
+			Version: fam.Version,
+		},
+		Data: attribs,
+	}
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.Execute(req, fam.ID, flags)
 	if err != nil {
-		return errors.New("genetlink.Conn.Execute() " + err.Error())
+		if err != syscall.ENOENT {
+			return errors.New("genetlink.Conn.Send() " + err.Error())
+		} else {
+			log.Println("no active scan")
+		}
+	} else {
+		fmt.Println("scan aborted")
 	}
 	return nil
 }
@@ -106,17 +134,17 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 		},
 		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
+	flags := netlink.HeaderFlagsRequest
 	_, err = conn.Send(req, fam.ID, flags)
 	if err != nil {
 		return errors.New("genetlink.Conn.Send() " + err.Error())
 	}
 	for !done {
-		msgs, _, err := conn.Receive()
+		nlMsgs, _, err := conn.Receive()
 		if err != nil {
 			fmt.Println(err)
 		}
-		for _, m := range msgs {
+		for _, m := range nlMsgs {
 			switch m.Header.Command {
 			case nl80211.CMD_NEW_SCAN_RESULTS:
 				done = true
@@ -277,7 +305,7 @@ func getWhiteListFromFile() List {
 	return whiteList
 }
 
-func makeApWatchList(stations []Station, whiteList List) List {
+func makeApWatchList(stations []Station, whiteList *List) List {
 	var apWatch List
 	for _, v := range stations {
 		if _, ok := whiteList.Get(v.SSID); !ok {
@@ -321,15 +349,18 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	if err := inactive.SetBufferSize(DefPcapBufLen); err != nil {
 		log.Fatalln(err)
 	}
-	if err := inactive.SetSnapLen(256); err != nil {
-		log.Fatalln(err)
-	}
+	//if err := inactive.SetSnapLen(256); err != nil {
+	//	log.Fatalln(err)
+	//}
 	if err := inactive.SetTimeout(time.Second * 10); err != nil {
 		log.Fatalln(err)
 	}
-	if err := inactive.SetPromisc(false); err != nil {
-		log.Fatalln(err)
-	}
+	//if err := inactive.SetImmediateMode(true); err != nil {
+	//	log.Fatalln(err)
+	//}
+	//if err := inactive.SetPromisc(false); err != nil {
+	//	log.Fatalln(err)
+	//}
 	if err := inactive.SetRFMon(true); err != nil {
 		log.Fatalln(err)
 	}
@@ -359,6 +390,43 @@ func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List, aps *
 	return false
 }
 
+func setupNLConn(p *wifi.Interface) (*genetlink.Conn, *genetlink.Family, error) {
+	conn, err := genetlink.Dial(nil)
+	if err != nil {
+		return nil, nil, errors.New("genetlink.Dial() " + err.Error())
+	}
+	fam, err := getNL80211Family(conn)
+	if err != nil {
+		return nil, nil, errors.New("getNL80211Family() " + err.Error())
+	}
+	scanMCID, err := getNL80211ScanMCID(fam)
+	if err != nil {
+		return nil, nil, errors.New("getNL80211ScanMCID() " + err.Error())
+	}
+	if err := conn.JoinGroup(scanMCID); err != nil {
+		return nil, nil, errors.New("genetlink.Conn.JoinGroup() " + err.Error())
+	}
+	return conn, fam, nil
+}
+
+func doAPScan(p *wifi.Interface, whiteList *List) (macWatch List) {
+	conn, fam, err := setupNLConn(p)
+	defer func(){
+		if err := conn.Close(); err != nil {
+			log.Fatalln("genetlink.Conn.Close() ", err)
+		}
+	}()
+	if err := triggerScan(conn, fam, p); err != nil {
+		log.Fatalln(err)
+	}
+	stations, err := getScanResults(conn, fam, p)
+	if err != nil {
+		log.Fatalln("getScanResults() ", err)
+	}
+	apWatchList := makeApWatchList(stations, whiteList)
+	return apWatchList
+}
+
 func main() {
 	if len(os.Args) < 3 {
 		help()
@@ -375,43 +443,14 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	conn, err := genetlink.Dial(nil)
+	conn, fam, err := setupNLConn(iface)
 	defer func(){
 		if err := conn.Close(); err != nil {
 			log.Fatalln("genetlink.Conn.Close() ", err)
 		}
 	}()
-	if err != nil {
-		log.Fatalln("genetlink.Dial() ", err)
-	}
-	fam, err := getNL80211Family(conn)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	scanMCID, err := getNL80211ScanMCID(fam)
-	if err != nil {
-		log.Fatalln("getNL80211ScanMCID()", err)
-	}
-	if err := conn.JoinGroup(scanMCID); err != nil {
-		log.Fatalln("genetlink.Conn.JoinGroup() ", err)
-	}
-	if err := triggerScan(conn, fam, iface); err != nil {
-		log.Fatalln(err)
-	}
-	stations, err := getScanResults(conn, fam, iface)
-	if err != nil {
-		log.Fatalln("getScanResults() ", err)
-	}
-
-	wlist := getWhiteListFromFile()
-	apWatchList := makeApWatchList(stations, wlist)
-	for k := range wlist.contents {
-		fmt.Println(k)
-	}
-	for _, v := range apWatchList.contents {
-		s := v.(Station)
-		fmt.Printf("target broadcasing aps: %s - %s\n", s.SSID, s.BSSID.String())
-	}
+	whiteList := getWhiteListFromFile()
+	macWatchlist := doAPScan(iface, &whiteList)
 	handle, err := setupPcapHandle(iface)
 	if err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
@@ -421,16 +460,16 @@ func main() {
 	//	log.Panicln(err)
 	//}
 
-	//key: Client's Mac | value: OldMac
 	var cliWatchList List
 	var KosAPMacs List
 	sInx := 0
+	sLen := len(macWatchlist.contents) - 1
 	packSrc := gopacket.NewPacketSource(handle, handle.LinkType())
 	lastChanSwitch := time.Now()
 	for !QuitSIGINT {
 		packet, err := packSrc.NextPacket()
 		if err != nil {
-			log.Print("gopacket.PacketSource.NextPacket() ", err.Error())
+			log.Println(err)
 		}
 		if packet != nil {
 			data := packet.Data()
@@ -438,38 +477,42 @@ func main() {
 			if len(data) >= MinEthFrameLen {
 				dstMac := net.HardwareAddr(data[:6])
 				srcMac := net.HardwareAddr(data[6:12])
-
 				//fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
-				if ok := checkComms(srcMac, dstMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
+				if ok := checkComms(srcMac, dstMac, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
 
-				} else if ok := checkComms(dstMac, srcMac, &cliWatchList, &apWatchList, &KosAPMacs); ok {
+				} else if ok := checkComms(dstMac, srcMac, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
 
-				} else if _, ok := apWatchList.Get(srcMac.String()); ok {
+				} else if _, ok := macWatchlist.Get(srcMac.String()); ok {
 					fmt.Printf("\nadded client to watch list %s\n", dstMac.String())
 					cliWatchList.Add(dstMac.String(), srcMac.String())
-				} else if _, ok := apWatchList.Get(dstMac.String()); ok {
+				} else if _, ok := macWatchlist.Get(dstMac.String()); ok {
 					fmt.Printf("\nadded client to watch list %s\n", srcMac.String())
 					cliWatchList.Add(srcMac.String(), dstMac.String())
 				}
 			}
-			if time.Since(lastChanSwitch) > time.Second * 10 {
-				i := 0
-				for _, v := range apWatchList.contents {
-					if i == sInx {
-						station := v.(Station)
-						if err := setDeviceChannel(station.Freq, conn, iface, fam); err != nil {
-							log.Printf("error changing frequency %s", err.Error())
-						} else {
-							log.Printf("chan switched to %dMhz", station.Freq)
-						}
-						sInx++
-						lastChanSwitch = time.Now()
-						break
+		}
+		if time.Since(lastChanSwitch) > time.Second * 20 {
+			i := 0
+			for _, v := range macWatchlist.contents {
+				if i == sInx {
+					station := v.(Station)
+					if err := setDeviceChannel(station.Freq, conn, iface, fam); err != nil {
+						log.Printf("error changing frequency %s", err.Error())
+					} else {
+						log.Printf("chan switched to %dMhz", station.Freq)
 					}
-					i++
+					if sInx + 1 >= sLen {
+						sInx = 0
+					} else {
+						sInx++
+					}
+					lastChanSwitch = time.Now()
+					break
 				}
+				i++
 			}
 		}
 	}
 }
+
 
