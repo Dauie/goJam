@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const NoSSID = "SSID_NO_BROADCAST"
+const NoSSID = "NO_SSID"
 
 const EthAlen = 6
 
@@ -79,16 +79,17 @@ func setDeviceChannel(freq uint32, conn *genetlink.Conn, ifa *wifi.Interface, fa
 		},
 		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.Execute(req, fam.ID, flags)
 	if err != nil {
-		return errors.New("genetlink.Conn.Send() " + err.Error())
+		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
 	fmt.Println("changed freq")
 	return nil
 }
 
-func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
+func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family,
+					iface *wifi.Interface) error {
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
 	attribs, err := encoder.Encode()
@@ -102,11 +103,11 @@ func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Inte
 		},
 		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
+	flags := netlink.HeaderFlagsRequest
 	_, err = conn.Execute(req, fam.ID, flags)
 	if err != nil {
 		if err != syscall.ENOENT {
-			return errors.New("genetlink.Conn.Send() " + err.Error())
+			return errors.New("genetlink.Conn.Execute() " + err.Error())
 		} else {
 			log.Println("no active scan")
 		}
@@ -116,16 +117,15 @@ func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Inte
 	return nil
 }
 
-func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) error {
-	var done = false
-
+func triggerScan(conn *genetlink.Conn, fam *genetlink.Family,
+					iface *wifi.Interface) (bool, error) {
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
 	// wildcard scan
 	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
 	attribs, err := encoder.Encode()
 	if err != nil {
-		return errors.New("genetlink.Encoder.Encode() " + err.Error())
+		return false, errors.New("genetlink.Encoder.Encode() " + err.Error())
 	}
 	req := genetlink.Message {
 		Header: genetlink.Header {
@@ -137,27 +137,27 @@ func triggerScan(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interf
 	flags := netlink.HeaderFlagsRequest
 	_, err = conn.Send(req, fam.ID, flags)
 	if err != nil {
-		return errors.New("genetlink.Conn.Send() " + err.Error())
+		return false, errors.New("genetlink.Conn.Send() " + err.Error())
 	}
+	done := false
 	for !done {
-		nlMsgs, _, err := conn.Receive()
+		msgs, _, err := conn.Receive()
 		if err != nil {
-			fmt.Println(err)
+			return false, errors.New("genetlink.Conn.Recieve() " + err.Error())
 		}
-		for _, m := range nlMsgs {
+		for _, m := range msgs {
 			switch m.Header.Command {
 			case nl80211.CMD_NEW_SCAN_RESULTS:
 				done = true
 				break
 			case nl80211.CMD_SCAN_ABORTED:
-				fmt.Println("SCAN ABORTED, trying again...")
-				return triggerScan(conn, fam, iface)
+				return false, errors.New("scan failed")
 			default:
 				break
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
 
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
@@ -216,7 +216,8 @@ func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
 	return stations, nil
 }
 
-func getScanResults(conn *genetlink.Conn, fam *genetlink.Family, iface *wifi.Interface) ([]Station, error) {
+func getScanResults(conn *genetlink.Conn, fam *genetlink.Family,
+					iface *wifi.Interface) ([]Station, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
@@ -269,6 +270,7 @@ func getInterface(targetIface string) (* wifi.Interface, error) {
 func getNL80211ScanMCID(fam *genetlink.Family) (uint32, error) {
 	scanMCID := uint32(0)
 	for _, v := range fam.Groups {
+		fmt.Println(v.Name)
 		if v.Name == "scan" {
 			scanMCID = v.ID
 		}
@@ -371,7 +373,8 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	return handle, nil
 }
 
-func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List, aps *List, kosAPs *List ) bool {
+func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List,
+				aps *List, kosAPs *List ) bool {
 	if v, ok := clients.Get(src.String()); ok {
 		oldMac := v.(string)
 		if dst.String() != oldMac {
@@ -399,32 +402,33 @@ func setupNLConn(p *wifi.Interface) (*genetlink.Conn, *genetlink.Family, error) 
 	if err != nil {
 		return nil, nil, errors.New("getNL80211Family() " + err.Error())
 	}
-	scanMCID, err := getNL80211ScanMCID(fam)
-	if err != nil {
-		return nil, nil, errors.New("getNL80211ScanMCID() " + err.Error())
-	}
-	if err := conn.JoinGroup(scanMCID); err != nil {
-		return nil, nil, errors.New("genetlink.Conn.JoinGroup() " + err.Error())
-	}
 	return conn, fam, nil
 }
 
-func doAPScan(p *wifi.Interface, whiteList *List) (macWatch List) {
-	conn, fam, err := setupNLConn(p)
-	defer func(){
-		if err := conn.Close(); err != nil {
-			log.Fatalln("genetlink.Conn.Close() ", err)
+func doAPScan(conn *genetlink.Conn, fam *genetlink.Family, p *wifi.Interface,
+				whiteList *List) (macWatch List, err error) {
+	scanMCID, err := getNL80211ScanMCID(fam)
+	if err := conn.JoinGroup(scanMCID); err != nil {
+		return List{}, errors.New("genetlink.Conn.JoinGroup() " + err.Error())
+	}
+	if ok, err := triggerScan(conn, fam, p); !ok {
+		if err.Error() == "scan failed" {
+			//retry scan once
+			if ok, err := triggerScan(conn, fam, p); !ok {
+				return List{}, errors.New("triggerScan() " + err.Error())
+			}
 		}
-	}()
-	if err := triggerScan(conn, fam, p); err != nil {
-		log.Fatalln(err)
+		return List{}, errors.New("triggerScan() " + err.Error())
 	}
 	stations, err := getScanResults(conn, fam, p)
 	if err != nil {
-		log.Fatalln("getScanResults() ", err)
+		return List{}, errors.New("getScanResults() " + err.Error())
+	}
+	if err := conn.LeaveGroup(scanMCID); err != nil {
+		return List{}, errors.New("genetlink.LeaveGroup() " + err.Error())
 	}
 	apWatchList := makeApWatchList(stations, whiteList)
-	return apWatchList
+	return apWatchList, nil
 }
 
 func main() {
@@ -450,7 +454,10 @@ func main() {
 		}
 	}()
 	whiteList := getWhiteListFromFile()
-	macWatchlist := doAPScan(iface, &whiteList)
+	macWatchlist, err := doAPScan(conn, fam, iface, &whiteList)
+	if err != nil {
+		log.Fatalln("doAPScan()", err)
+	}
 	handle, err := setupPcapHandle(iface)
 	if err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
