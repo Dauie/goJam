@@ -4,12 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/dauie/go-netlink/nl80211"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
-	"github.com/mdlayher/genetlink"
-	"github.com/mdlayher/netlink"
-	"github.com/mdlayher/wifi"
 	"log"
 	"net"
 	"os"
@@ -17,6 +11,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/dauie/go-netlink/nl80211"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/pcap"
+	"github.com/mdlayher/genetlink"
+	"github.com/mdlayher/netlink"
 )
 
 const NoSSID = "NO_SSID"
@@ -26,6 +26,23 @@ const EthAlen = 6
 const DefPcapBufLen = 2 * 1024 * 1024
 
 const MinEthFrameLen = 64
+
+const (
+	ATTR_CHANNEL_WIDTH = 0x9f
+	ATTR_CENTER_FREQ = 0xa0
+)
+
+
+const (
+	NL_80211_CHAN_WIDTH_20_NOHT = 0x0
+	NL_80211_CHAN_WIDTH_20 = 0x1
+	NL_80211_CHAN_WIDTH_40 = 0x2
+	NL_80211_CHAN_WIDTH_80 = 0x3
+	NL_80211_CHAN_WIDTH_80P80 = 0x4
+	NL_80211_CHAN_WIDTH_160 = 0x5
+	NL_80211_CHAN_WIDTH_5 = 0x6
+	NL_80211_CHAN_WIDTH_10 = 0x7
+)
 
 var QuitSIGINT = false
 
@@ -60,14 +77,23 @@ type Station struct {
 }
 
 func help() {
-	fmt.Printf("useage: ./%s <interface> <whitelist>\n", os.Args[0])
+	fmt.Printf("useage: ./%s <util iface> <mon iface> <whitelist>\n", os.Args[0])
 	os.Exit(1)
 }
 
-func setDeviceChannel(freq uint32, conn *genetlink.Conn, ifa *wifi.Interface, fam *genetlink.Family) error {
+func setDeviceChannel(freq uint32, conn *genetlink.Conn, ifa *net.Interface, fam *genetlink.Family) error {
 	encoder := netlink.NewAttributeEncoder()
+
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(ifa.Index))
 	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, freq)
+	var width uint32
+	if freq < 5000 {
+		width = NL_80211_CHAN_WIDTH_20
+	} else {
+		width = NL_80211_CHAN_WIDTH_40
+	}
+	encoder.Uint32(ATTR_CHANNEL_WIDTH, width)
+	encoder.Uint32(ATTR_CENTER_FREQ, freq)
 	attribs, err := encoder.Encode()
 	if err != nil {
 		return errors.New("genetlink.Encoder.Encode() " + err.Error())
@@ -84,12 +110,11 @@ func setDeviceChannel(freq uint32, conn *genetlink.Conn, ifa *wifi.Interface, fa
 	if err != nil {
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
-	fmt.Println("changed freq")
 	return nil
 }
 
 func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family,
-					iface *wifi.Interface) error {
+					iface *net.Interface) error {
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
 	attribs, err := encoder.Encode()
@@ -118,7 +143,7 @@ func sendScanAbort(conn *genetlink.Conn, fam *genetlink.Family,
 }
 
 func triggerScan(conn *genetlink.Conn, fam *genetlink.Family,
-					iface *wifi.Interface) (bool, error) {
+					iface *net.Interface) (bool, error) {
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(iface.Index))
 	// wildcard scan
@@ -217,7 +242,7 @@ func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
 }
 
 func getScanResults(conn *genetlink.Conn, fam *genetlink.Family,
-					iface *wifi.Interface) ([]Station, error) {
+					iface *net.Interface) ([]Station, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
@@ -240,34 +265,22 @@ func getScanResults(conn *genetlink.Conn, fam *genetlink.Family,
 	return decodeScanResults(msgs)
 }
 
-func getInterface(targetIface string) (* wifi.Interface, error) {
-	var ret *wifi.Interface = nil
+func getInterface(targetIface string) (net.Interface, error) {
 
-	client, err := wifi.New()
+	ifaces, err := net.Interfaces()
 	if err != nil {
-		log.Panicln(err)
-	}
-	defer func(){
-		if err := client.Close(); err != nil {
-			log.Panicln(err)
-		}
-	}()
-	ifaces, err := client.Interfaces()
-	if err != nil {
-		return nil, errors.New("wifi.Client.Interfaces() " + err.Error())
+		return net.Interface{}, errors.New("net.Interfaces() " + err.Error())
 	}
 	for _, v := range ifaces {
 		if v.Name == targetIface {
-			ret = v
+			return v, nil
 		}
 	}
-	if ret == nil {
-		return nil, fmt.Errorf("interface %s not found", targetIface)
-	}
-	return ret, nil
+	return net.Interface{}, fmt.Errorf("interface %s not found", targetIface)
 }
 
 func getNL80211ScanMCID(fam *genetlink.Family) (uint32, error) {
+
 	scanMCID := uint32(0)
 	for _, v := range fam.Groups {
 		fmt.Println(v.Name)
@@ -282,6 +295,7 @@ func getNL80211ScanMCID(fam *genetlink.Family) (uint32, error) {
 }
 
 func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
+
 	fam, err := conn.GetFamily("nl80211")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -295,7 +309,7 @@ func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 func getWhiteListFromFile() List {
 	var whiteList List
 
-	file, err := os.Open(os.Args[2])
+	file, err := os.Open(os.Args[3])
 	if err != nil {
 		log.Panicln()
 	}
@@ -309,21 +323,17 @@ func getWhiteListFromFile() List {
 
 func makeApWatchList(stations []Station, whiteList *List) List {
 	var apWatch List
+	fmt.Printf("AP Watchlist\n")
 	for _, v := range stations {
 		if _, ok := whiteList.Get(v.SSID); !ok {
-			fmt.Println(v.BSSID.String())
+			fmt.Printf("%s - %s\n", v.SSID ,v.BSSID.String())
 			apWatch.Add(v.BSSID.String(), v)
 		}
 	}
 	return apWatch
 }
 
-func resetKernelFilter(handle *pcap.Handle) {
-
-
-}
-
-func setFilterForTargets(handle *pcap.Handle, p *wifi.Interface) error {
+func setFilterForTargets(handle *pcap.Handle, p *net.Interface) error {
 	var bpfExpr string
 	//var i = 0
 	//var ln = len(targetList) - 1
@@ -342,7 +352,7 @@ func setFilterForTargets(handle *pcap.Handle, p *wifi.Interface) error {
 	return nil
 }
 
-func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
+func setupPcapHandle(iface *net.Interface) (*pcap.Handle, error) {
 	inactive, err := pcap.NewInactiveHandle(iface.Name)
 	defer inactive.CleanUp()
 	if err != nil {
@@ -351,18 +361,12 @@ func setupPcapHandle(iface *wifi.Interface) (*pcap.Handle, error) {
 	if err := inactive.SetBufferSize(DefPcapBufLen); err != nil {
 		log.Fatalln(err)
 	}
-	//if err := inactive.SetSnapLen(256); err != nil {
-	//	log.Fatalln(err)
-	//}
-	if err := inactive.SetTimeout(time.Second * 10); err != nil {
+	if err := inactive.SetSnapLen(128); err != nil {
 		log.Fatalln(err)
 	}
-	//if err := inactive.SetImmediateMode(true); err != nil {
-	//	log.Fatalln(err)
-	//}
-	//if err := inactive.SetPromisc(false); err != nil {
-	//	log.Fatalln(err)
-	//}
+	if err := inactive.SetTimeout(time.Second * 1); err != nil {
+		log.Fatalln(err)
+	}
 	if err := inactive.SetRFMon(true); err != nil {
 		log.Fatalln(err)
 	}
@@ -393,7 +397,7 @@ func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List,
 	return false
 }
 
-func setupNLConn(p *wifi.Interface) (*genetlink.Conn, *genetlink.Family, error) {
+func setupNLConn() (*genetlink.Conn, *genetlink.Family, error) {
 	conn, err := genetlink.Dial(nil)
 	if err != nil {
 		return nil, nil, errors.New("genetlink.Dial() " + err.Error())
@@ -405,7 +409,7 @@ func setupNLConn(p *wifi.Interface) (*genetlink.Conn, *genetlink.Family, error) 
 	return conn, fam, nil
 }
 
-func doAPScan(conn *genetlink.Conn, fam *genetlink.Family, p *wifi.Interface,
+func doAPScan(conn *genetlink.Conn, fam *genetlink.Family, p *net.Interface,
 				whiteList *List) (macWatch List, err error) {
 	scanMCID, err := getNL80211ScanMCID(fam)
 	if err := conn.JoinGroup(scanMCID); err != nil {
@@ -432,7 +436,7 @@ func doAPScan(conn *genetlink.Conn, fam *genetlink.Family, p *wifi.Interface,
 }
 
 func main() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 4 {
 		help()
 	}
 	sigc := make(chan os.Signal, 1)
@@ -443,27 +447,34 @@ func main() {
 		}
 	}()
 	signal.Notify(sigc, syscall.SIGINT)
-	iface, err := getInterface(os.Args[1])
+	fmt.Println(os.Args[1], "\t", os.Args[2])
+	utilIfa, err := getInterface(os.Args[1])
 	if err != nil {
 		log.Fatalln(err)
 	}
-	conn, fam, err := setupNLConn(iface)
+	monIfa, err := getInterface(os.Args[2])
+	if err != nil {
+		log.Fatalln(err)
+	}
+	fmt.Println("mon: ", monIfa)
+	fmt.Println("util: ", utilIfa)
+	conn, fam, err := setupNLConn()
 	defer func(){
 		if err := conn.Close(); err != nil {
 			log.Fatalln("genetlink.Conn.Close() ", err)
 		}
 	}()
 	whiteList := getWhiteListFromFile()
-	macWatchlist, err := doAPScan(conn, fam, iface, &whiteList)
+	macWatchlist, err := doAPScan(conn, fam, &utilIfa, &whiteList)
 	if err != nil {
 		log.Fatalln("doAPScan()", err)
 	}
-	handle, err := setupPcapHandle(iface)
+	handle, err := setupPcapHandle(&monIfa)
 	if err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
 	}
 	defer handle.Close()
-	//if err := setFilterForTargets(handle, iface); err != nil {
+	//if err := setFilterForTargets(handle, utilIfa); err != nil {
 	//	log.Panicln(err)
 	//}
 
@@ -503,7 +514,8 @@ func main() {
 			for _, v := range macWatchlist.contents {
 				if i == sInx {
 					station := v.(Station)
-					if err := setDeviceChannel(station.Freq, conn, iface, fam); err != nil {
+					if err := setDeviceChannel(station.Freq, conn, &monIfa, fam);
+					err != nil {
 						log.Printf("error changing frequency %s", err.Error())
 					} else {
 						log.Printf("chan switched to %dMhz", station.Freq)
