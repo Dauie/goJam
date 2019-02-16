@@ -32,7 +32,6 @@ const (
 	ATTR_CENTER_FREQ = 0xa0
 )
 
-
 const (
 	NL_80211_CHAN_WIDTH_20_NOHT = 0x0
 	NL_80211_CHAN_WIDTH_20 = 0x1
@@ -44,6 +43,53 @@ const (
 	NL_80211_CHAN_WIDTH_10 = 0x7
 )
 
+var (
+	Chan24G  = map[int]Channel {
+		1: { LowerFreq: 2401, CenterFreq: 2412, UpperFreq: 2423 },
+		2: { LowerFreq: 2406, CenterFreq: 2412, UpperFreq: 2428 },
+		3: { LowerFreq: 2411, CenterFreq: 2422, UpperFreq: 2433 },
+		4: { LowerFreq: 2416, CenterFreq: 2427, UpperFreq: 2438 },
+		5: { LowerFreq: 2421, CenterFreq: 2432, UpperFreq: 2443 },
+		6: { LowerFreq: 2426, CenterFreq: 2437, UpperFreq: 2448 },
+		7: { LowerFreq: 2431, CenterFreq: 2442, UpperFreq: 2453 },
+		8: { LowerFreq: 2436, CenterFreq: 2447, UpperFreq: 2458 },
+		9: { LowerFreq: 2441, CenterFreq: 2452, UpperFreq: 2463 },
+		10: { LowerFreq: 2446, CenterFreq: 2457, UpperFreq: 2468 },
+		11: { LowerFreq: 2451, CenterFreq: 2462, UpperFreq: 2473 },
+		12: { LowerFreq: 2456, CenterFreq: 2467, UpperFreq:	2478 },
+		13: { LowerFreq: 2461, CenterFreq: 2472, UpperFreq:	2483 },
+		14: { LowerFreq: 2473, CenterFreq: 2484, UpperFreq:	2495 },
+	}
+
+	Chan50G = map[int]Channel {
+
+		  36: { CenterFreq: 5180 },
+		  40: { CenterFreq: 5200 },
+		  44: { CenterFreq: 5220 },
+		  48: { CenterFreq: 5240 },
+		  52: { CenterFreq: 5260 },
+		  56: { CenterFreq: 5280 },
+		  60: { CenterFreq: 5300 },
+		  64: { CenterFreq: 5320 },
+		  100: { CenterFreq: 5500 },
+		  104: { CenterFreq: 5520 },
+		  108: { CenterFreq: 5540 },
+		  112: { CenterFreq: 5560 },
+		  116: { CenterFreq: 5580 },
+		  120: { CenterFreq: 5600 },
+		  124: { CenterFreq: 5620 },
+		  128: { CenterFreq: 5640 },
+		  132: { CenterFreq: 5660 },
+		  136: { CenterFreq: 5680 },
+		  140: { CenterFreq: 5700 },
+		  149: { CenterFreq: 5745 },
+		  153: { CenterFreq: 5765 },
+		  157: { CenterFreq: 5785 },
+		  161: { CenterFreq: 5805 },
+		  165: { CenterFreq: 5825 },
+	}
+)
+
 var QuitSIGINT = false
 
 type Type interface{}
@@ -52,6 +98,14 @@ type Value Type
 
 type List struct {
 	contents map[string]Value
+}
+
+type Channel struct {
+	ChanNum int
+	LowerFreq int
+	CenterFreq int
+	UpperFreq int
+	ChanWidth int
 }
 
 func (l* List)Get(key string) (Value, bool){
