@@ -1,48 +1,19 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
+	"github.com/dauie/go-netlink/nl80211"
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
 
-/*
-**
-** Const Globals
-**
-*/
-
-const NoSSID = "NO_SSID"
-
-const EthAlen = 6
-
-const DefPcapBufLen = 2 * 1024 * 1024
-
-const MinEthFrameLen = 64
-
-const (
-	ATTR_CHANNEL_WIDTH = 0x9f
-	ATTR_CENTER_FREQ = 0xa0
-)
-
-const (
-	NL_80211_CHAN_WIDTH_20_NOHT = 0x0
-	NL_80211_CHAN_WIDTH_20 = 0x1
-	NL_80211_CHAN_WIDTH_40 = 0x2
-	NL_80211_CHAN_WIDTH_80 = 0x3
-	NL_80211_CHAN_WIDTH_80P80 = 0x4
-	NL_80211_CHAN_WIDTH_160 = 0x5
-	NL_80211_CHAN_WIDTH_5 = 0x6
-	NL_80211_CHAN_WIDTH_10 = 0x7
-)
 
 var QuitSIGINT = false
 
@@ -60,33 +31,6 @@ func handleSignals() {
 		}
 	}()
 	signal.Notify(sigc, syscall.SIGINT)
-}
-
-func getWhiteListFromFile() List {
-	var whiteList List
-
-	file, err := os.Open(os.Args[3])
-	if err != nil {
-		log.Panicln()
-	}
-	fscanner := bufio.NewScanner(file)
-	for fscanner.Scan() {
-		ssid := strings.TrimSpace(fscanner.Text())
-		whiteList.Add(ssid, true)
-	}
-	return whiteList
-}
-
-func makeApWatchList(stations []Station, whiteList *List) List {
-	var apWatch List
-	fmt.Printf("AP Watchlist\n")
-	for _, v := range stations {
-		if _, ok := whiteList.Get(v.SSID); !ok {
-			fmt.Printf("%s - %s\n", v.SSID ,v.BSSID.String())
-			apWatch.Add(v.BSSID.String(), v)
-		}
-	}
-	return apWatch
 }
 
 func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List,
@@ -118,28 +62,49 @@ func main() {
 	if err != nil {
 		log.Fatalln("NewJamConn() ", err)
 	}
+	defer func(){
+		if err := utilIfa.nlconn.Close(); err != nil {
+			log.Fatalln("genetlink.Conn.Close() ", err)
+		}
+	}()
 	monIfa, err := NewJamConn(os.Args[2])
 	if err != nil {
 		log.Fatalln("NewJamConn() ", err)
 	}
 	defer func(){
-		if err := utilIfa.nlconn.Close(); err != nil {
-			log.Fatalln("genetlink.Conn.Close() ", err)
-		}
 		if err := monIfa.nlconn.Close(); err != nil {
 			log.Fatalln("genetlink.Conn.Close() ", err)
 		}
 	}()
+	//if err := monIfa.MakeMonIfa(); err != nil {
+	//	log.Fatalln("JamConn.MakeMonIfa() ", err.Error())
+	//}
+	//defer func() {
+	//	if err:= monIfa.DelMonIfa(); err != nil {
+	//		log.Fatalln("JamConn.DelMonIfa()", err.Error())
+	//	}
+	//}()
+	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
+		log.Fatalln("JamConn.SetIfaType()", err.Error())
+	}
+	defer func() {
+		if err := monIfa.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
+			log.Fatalln("JamConn.SetIfaType()", err.Error())
+		}
+	}()
+	if err = monIfa.SetupPcapHandle(); err != nil {
+		log.Fatalln("setupPcapHandle() ", err)
+	}
+	defer monIfa.handle.Close()
+	if err := monIfa.SetDeviceChannel(1); err != nil {
+		log.Fatalln("JamConn.SetDeviceChannel()", err.Error())
+	}
+
 	whiteList := getWhiteListFromFile()
 	macWatchlist, err := utilIfa.DoAPScan(&whiteList)
 	if err != nil {
 		log.Fatalln("doAPScan()", err)
 	}
-	err = monIfa.SetupPcapHandle()
-	if err != nil {
-		log.Fatalln("setupPcapHandle() ", err)
-	}
-	defer monIfa.handle.Close()
 	var cliWatchList List
 	var KosAPMacs List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
@@ -147,30 +112,33 @@ func main() {
 	for !QuitSIGINT {
 		packet, err := packSrc.NextPacket()
 		if err != nil {
-			log.Println(err)
+			if err.Error() != "Timeout Expired" {
+				log.Fatalln("gopacket.PacketSource.NextPacket()", err.Error())
+			}
 		}
 		if packet != nil {
-			data := packet.Data()
-			fmt.Print(".")
-			if len(data) >= MinEthFrameLen {
-				dstMac := net.HardwareAddr(data[:6])
-				srcMac := net.HardwareAddr(data[6:12])
-				//fmt.Printf("dst: %s | src %s\n", dstMac.String(), srcMac.String())
-				if ok := checkComms(srcMac, dstMac, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
+			data80211 := packet.Layer(layers.LayerTypeDot11)
+			if data80211 != nil {
+				data := data80211.(*layers.Dot11)
+				recvr := data.Address1
+				transmttr := data.Address2
+				dst := data.Address3
+				src := data.Address4
 
-				} else if ok := checkComms(dstMac, srcMac, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
+				fmt.Printf("reciever: %s | trasmitter: %s | src: %s | dst: %s\n", recvr.String(), transmttr.String(), dst.String(), src.String())
+				if ok := checkComms(src, dst, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
 
-				} else if _, ok := macWatchlist.Get(srcMac.String()); ok {
-					fmt.Printf("\nadded client to watch list %s\n", dstMac.String())
-					cliWatchList.Add(dstMac.String(), srcMac.String())
-				} else if _, ok := macWatchlist.Get(dstMac.String()); ok {
-					fmt.Printf("\nadded client to watch list %s\n", srcMac.String())
-					cliWatchList.Add(srcMac.String(), dstMac.String())
+				} else if ok := checkComms(dst, src, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
+
+				} else if _, ok := macWatchlist.Get(src.String()); ok {
+					fmt.Printf("\nadded client to watch list %s\n", dst.String())
+					cliWatchList.Add(dst.String(), src.String())
+				} else if _, ok := macWatchlist.Get(dst.String()); ok {
+					fmt.Printf("\nadded client to watch list %s\n", src.String())
+					cliWatchList.Add(src.String(), dst.String())
 				}
 			}
 		}
-		monIfa.ChangeChanIfPast(time.Second * 2)
+		//monIfa.ChangeChanIfPast(time.Second * 2)
 	}
 }
-
-

@@ -1,0 +1,25 @@
+package main
+
+const NoSSID = "NO_SSID"
+
+const EthAlen = 6
+
+const DefPcapBufLen = 2 * 1024 * 1024
+
+const MinEthFrameLen = 64
+
+const (
+	ATTR_CHANNEL_WIDTH = 0x9f
+	ATTR_CENTER_FREQ = 0xa0
+)
+
+const (
+	NL_80211_CHAN_WIDTH_20_NOHT = 0x0
+	NL_80211_CHAN_WIDTH_20 = 0x1
+	NL_80211_CHAN_WIDTH_40 = 0x2
+	NL_80211_CHAN_WIDTH_80 = 0x3
+	NL_80211_CHAN_WIDTH_80P80 = 0x4
+	NL_80211_CHAN_WIDTH_160 = 0x5
+	NL_80211_CHAN_WIDTH_5 = 0x6
+	NL_80211_CHAN_WIDTH_10 = 0x7
+)
