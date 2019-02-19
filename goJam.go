@@ -23,6 +23,7 @@ func help() {
 }
 
 func handleSignals() {
+
 	sigc := make(chan os.Signal, 1)
 	go func () {
 		s := <-sigc
@@ -34,6 +35,7 @@ func handleSignals() {
 }
 
 func checkComms(data *layers.Dot11, lastComms *List, aps *List) bool {
+
 	var apMac net.HardwareAddr
 	var clientMac net.HardwareAddr
 
@@ -67,6 +69,7 @@ func checkComms(data *layers.Dot11, lastComms *List, aps *List) bool {
 }
 
 func main() {
+
 	if len(os.Args) < 4 {
 		help()
 	}
@@ -112,7 +115,6 @@ func main() {
 	if err := monIfa.SetDeviceChannel(1); err != nil {
 		log.Fatalln("JamConn.SetDeviceChannel()", err.Error())
 	}
-
 	whiteList := getWhiteListFromFile()
 	apList, err := utilIfa.DoAPScan(&whiteList)
 	if err != nil {
@@ -121,6 +123,7 @@ func main() {
 	var clientList List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
+	monIfa.SetLastDeauth(time.Now())
 	for !QuitSIGINT {
 		packet, err := packSrc.NextPacket()
 		if err != nil {
@@ -135,6 +138,7 @@ func main() {
 				checkComms(data, &clientList, &apList)
 			}
 		}
+		monIfa.DeauthClientsIfPast(time.Second * 30, apList)
 	}
 		//monIfa.ChangeChanIfPast(time.Second * 2)
 }

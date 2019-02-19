@@ -6,6 +6,7 @@ import (
 )
 
 func main() {
+
 	monIfa, err := NewJamConn(os.Args[1])
 	if err != nil {
 		log.Fatalln("NewJamConn() ", err)

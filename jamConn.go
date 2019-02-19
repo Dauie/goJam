@@ -14,24 +14,33 @@ import (
 	"github.com/mdlayher/netlink"
 )
 
-type JamConn struct {
+type JamConn		struct {
 	chanInx			int
 	lastChanSwitch	time.Time
+	lastDeauth		time.Time
 	nlconn			*genetlink.Conn
 	ifa				*net.Interface
 	fam				*genetlink.Family
 	handle			*pcap.Handle
 }
 
+func (conn *JamConn) SetLastDeauth(lastDeauth time.Time) {
+
+	conn.lastDeauth = lastDeauth
+}
+
 func (conn *JamConn) SetLastChanSwitch(lastChanSwitch time.Time) {
+
 	conn.lastChanSwitch = lastChanSwitch
 }
 
 func _NewJamConn(nlconn *genetlink.Conn, ifa *net.Interface, fam *genetlink.Family) *JamConn {
+
 	return &JamConn{chanInx: 1, nlconn: nlconn, ifa: ifa, fam: fam}
 }
 
 func NewJamConn(ifaName string) (*JamConn, error) {
+
 	nlconn, err := genetlink.Dial(nil)
 	if err != nil {
 		return nil, errors.New("genetlink.Dial() " + err.Error())
@@ -48,6 +57,7 @@ func NewJamConn(ifaName string) (*JamConn, error) {
 }
 
 func (conn *JamConn) SetDeviceChannel(c int) error {
+
 	if c < 1 || c > 14 {
 		return errors.New("invalid channel")
 	}
@@ -77,6 +87,7 @@ func (conn *JamConn) SetDeviceChannel(c int) error {
 }
 
 func (conn *JamConn) SendScanAbort() error {
+
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	attribs, err := encoder.Encode()
@@ -128,6 +139,7 @@ func (conn *JamConn) GetScanResults() ([]Station, error) {
 }
 
 func (conn *JamConn) SetFilterForTargets() error {
+
 	var bpfExpr string
 	//var i = 0
 	//var ln = len(targetList) - 1
@@ -147,6 +159,7 @@ func (conn *JamConn) SetFilterForTargets() error {
 }
 
 func (conn *JamConn) SetupPcapHandle() error {
+
 	inactive, err := pcap.NewInactiveHandle(conn.ifa.Name)
 	defer inactive.CleanUp()
 	if err != nil {
@@ -173,6 +186,7 @@ func (conn *JamConn) SetupPcapHandle() error {
 
 /* Playing around with making and removing virtual interfaces */
 func (conn *JamConn) MakeMonIfa() error {
+
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFTYPE, nl80211.IFTYPE_MONITOR)
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
@@ -197,6 +211,7 @@ func (conn *JamConn) MakeMonIfa() error {
 }
 
 func (conn *JamConn) DelMonIfa() error {
+
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	attribs, err := encoder.Encode()
@@ -219,6 +234,7 @@ func (conn *JamConn) DelMonIfa() error {
 }
 
 func (conn *JamConn) SetIfaType(ifaType uint32) error {
+
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFTYPE, ifaType)
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
@@ -242,6 +258,7 @@ func (conn *JamConn) SetIfaType(ifaType uint32) error {
 }
 
 func (conn *JamConn) DoAPScan(whiteList *List) (macWatch List, err error) {
+
 	scanMCID, err := getNL80211ScanMCID(conn.fam)
 	if err := conn.nlconn.JoinGroup(scanMCID); err != nil {
 		return List{}, errors.New("genetlink.Conn.JoinGroup() " + err.Error())
@@ -262,11 +279,11 @@ func (conn *JamConn) DoAPScan(whiteList *List) (macWatch List, err error) {
 	if err := conn.nlconn.LeaveGroup(scanMCID); err != nil {
 		return List{}, errors.New("genetlink.LeaveGroup() " + err.Error())
 	}
-	apWatchList := makeApWatchList(stations, whiteList)
-	return apWatchList, nil
+	return makeApWatchList(stations, whiteList), nil
 }
 
 func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
+
 	var chann Channel
 
 	if time.Since(conn.lastChanSwitch) > timeout {
@@ -286,7 +303,16 @@ func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
 	}
 }
 
+func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) {
+
+	if time.Since(conn.lastDeauth) > timeout {
+
+	}
+}
+
+
 func (conn* JamConn) TriggerScan() (bool, error) {
+
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	// wildcard scan

@@ -9,6 +9,7 @@ import (
 )
 
 func getWhiteListFromFile() List {
+
 	var whiteList List
 
 	file, err := os.Open(os.Args[3])
@@ -24,7 +25,9 @@ func getWhiteListFromFile() List {
 }
 
 func makeApWatchList(stations []Station, whiteList *List) List {
+
 	var apWatch List
+
 	fmt.Printf("AP Watchlist\n")
 	for _, v := range stations {
 		if _, ok := whiteList.Get(v.SSID); !ok {

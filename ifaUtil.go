@@ -3,9 +3,10 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/mdlayher/genetlink"
 	"net"
 	"os"
+
+	"github.com/mdlayher/genetlink"
 )
 
 func getInterface(targetIface string) (net.Interface, error) {
