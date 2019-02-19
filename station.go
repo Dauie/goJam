@@ -14,6 +14,7 @@ import (
 type Station struct {
 	BSSID net.HardwareAddr
 	SSID string
+	Clients map[string]net.HardwareAddr
 	Freq uint32
 }
 
@@ -27,6 +28,20 @@ func (s *Station) getSSIDFromBSSIE(b []byte) error {
 		s.SSID = NoSSID
 	}
 	return nil
+}
+
+func (s * Station) AddClient(addr net.HardwareAddr) {
+	if s.Clients == nil {
+		s.Clients = make(map[string]net.HardwareAddr)
+	}
+	s.Clients[addr.String()] = addr
+}
+
+func (s * Station) DelClient(addr net.HardwareAddr) {
+	if s.Clients == nil {
+		return
+	}
+	delete(s.Clients, addr.String())
 }
 
 func (s * Station) DecodeBSS(b []byte) error {

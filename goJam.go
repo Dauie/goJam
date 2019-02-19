@@ -33,21 +33,34 @@ func handleSignals() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func checkComms(src net.HardwareAddr, dst net.HardwareAddr, clients *List,
-				aps *List, kosAPs *List ) bool {
-	if v, ok := clients.Get(src.String()); ok {
-		oldMac := v.(string)
-		if dst.String() != oldMac {
-			v, _ := aps.Get(oldMac)
-			s := v.(Station)
-			ap := Station{
-				SSID:  s.SSID,
-				BSSID: dst,
+func checkComms(data *layers.Dot11, lastComms *List, aps *List) bool {
+	var apMac net.HardwareAddr
+	var clientMac net.HardwareAddr
+
+	bssid := data.Address3
+	if data.Address1.String() ==  bssid.String() {
+		apMac = data.Address1
+		clientMac = data.Address2
+	} else {
+		apMac = data.Address2
+		clientMac = data.Address1
+	}
+	if apMac.String() != "" && apMac.String() != BroadcastAddr &&
+		clientMac.String() != "" && clientMac.String() != BroadcastAddr {
+		if a, ok := aps.Get(apMac.String()); ok {
+			ap := a.(Station)
+			if v, ok := lastComms.Get(clientMac.String()); ok {
+				lastCom := v.(string)
+				if lastCom != apMac.String() {
+					if oap, ok := aps.Get(lastCom); ok {
+						fmt.Printf("client %s moved from %s to %s\n", clientMac.String(), lastCom, apMac.String())
+						oldAp := oap.(Station)
+						oldAp.DelClient(clientMac)
+					}
+				}
 			}
-			kosAPs.Add(dst.String(), ap)
-			clients.Del(src.String())
-			fmt.Printf("\nKill on site mac added: %s\n", dst.String())
-			return true
+			lastComms.Add(clientMac.String(), apMac.String())
+			ap.AddClient(clientMac)
 		}
 	}
 	return false
@@ -101,12 +114,11 @@ func main() {
 	}
 
 	whiteList := getWhiteListFromFile()
-	macWatchlist, err := utilIfa.DoAPScan(&whiteList)
+	apList, err := utilIfa.DoAPScan(&whiteList)
 	if err != nil {
 		log.Fatalln("doAPScan()", err)
 	}
-	var cliWatchList List
-	var KosAPMacs List
+	var clientList List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
 	for !QuitSIGINT {
@@ -120,25 +132,10 @@ func main() {
 			data80211 := packet.Layer(layers.LayerTypeDot11)
 			if data80211 != nil {
 				data := data80211.(*layers.Dot11)
-				recvr := data.Address1
-				transmttr := data.Address2
-				dst := data.Address3
-				src := data.Address4
-
-				fmt.Printf("reciever: %s | trasmitter: %s | src: %s | dst: %s\n", recvr.String(), transmttr.String(), dst.String(), src.String())
-				if ok := checkComms(src, dst, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
-
-				} else if ok := checkComms(dst, src, &cliWatchList,  &macWatchlist, &KosAPMacs); ok {
-
-				} else if _, ok := macWatchlist.Get(src.String()); ok {
-					fmt.Printf("\nadded client to watch list %s\n", dst.String())
-					cliWatchList.Add(dst.String(), src.String())
-				} else if _, ok := macWatchlist.Get(dst.String()); ok {
-					fmt.Printf("\nadded client to watch list %s\n", src.String())
-					cliWatchList.Add(src.String(), dst.String())
-				}
+				checkComms(data, &clientList, &apList)
 			}
 		}
-		//monIfa.ChangeChanIfPast(time.Second * 2)
 	}
+		//monIfa.ChangeChanIfPast(time.Second * 2)
 }
+

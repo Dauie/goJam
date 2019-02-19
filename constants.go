@@ -1,13 +1,14 @@
 package main
 
-const NoSSID = "NO_SSID"
+const (
+	BroadcastAddr = "ff:ff:ff:ff:ff:ff"
+	NoSSID = "NO_SSID"
+	EthAlen = 6
+	DefPcapBufLen = 2 * 1024 * 1024
+	MinEthFrameLen = 64
+)
 
-const EthAlen = 6
-
-const DefPcapBufLen = 2 * 1024 * 1024
-
-const MinEthFrameLen = 64
-
+/*TODO add these to gonetlink/nl80211.h*/
 const (
 	ATTR_CHANNEL_WIDTH = 0x9f
 	ATTR_CENTER_FREQ = 0xa0

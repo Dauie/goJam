@@ -5,7 +5,6 @@ build:
 
 clean:
 	@rm goJam
-	@rm delMonIfa
 
 #Makes a separate binary for deleteing the softmac device made by goJam
 delmon:
