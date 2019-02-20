@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/google/gopacket/layers"
 	"log"
 	"net"
 	"strings"
@@ -11,10 +12,16 @@ import (
 	"github.com/mdlayher/netlink"
 )
 
+type Client		struct {
+	addr		net.HardwareAddr
+	radioHdr	*layers.RadioTap
+	dot11		*layers.Dot11
+}
+
 type Station	struct {
 	BSSID		net.HardwareAddr
 	SSID		string
-	Clients		map[string]net.HardwareAddr
+	Clients		map[string]Client
 	Freq		uint32
 }
 
@@ -31,12 +38,12 @@ func (s *Station) getSSIDFromBSSIE(b []byte) error {
 	return nil
 }
 
-func (s * Station) AddClient(addr net.HardwareAddr) {
+func (s * Station) AddClient(client Client) {
 
 	if s.Clients == nil {
-		s.Clients = make(map[string]net.HardwareAddr)
+		s.Clients = make(map[string]Client)
 	}
-	s.Clients[addr.String()] = addr
+	s.Clients[client.addr.String()] = client
 }
 
 func (s * Station) DelClient(addr net.HardwareAddr) {

