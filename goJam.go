@@ -37,11 +37,9 @@ func handleSignals() {
 func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
 
 	var fromCli = false
-	var rHdr *layers.RadioTap = nil
-	var	dotHdr *layers.Dot11 = nil
 	var cliAddr net.HardwareAddr
 	var apAddr net.HardwareAddr
-	var client *Client
+	var client Client
 
 	// If this message originated from the client
 	if dot11.Address1.String() == dot11.Address3.String() {
@@ -51,21 +49,19 @@ func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
 		cliAddr = dot11.Address1
 		apAddr = dot11.Address2
 		fromCli = true
-		rHdr = rtap
-		dotHdr = dot11
 	}
 	if a, ok := aps.Get(apAddr.String()); ok {
-		ap := (*a).(Station)
-		if client = ap.GetClient(cliAddr); client == nil {
-			client = new(Client)
+		ap := a.(Station)
+		if ok, client = ap.GetClient(cliAddr); !ok {
+			client = Client{}
 			client.hwaddr = cliAddr
 		}
 		if fromCli {
-			client.dot11 = *dotHdr
-			client.radioHdr = *rHdr
+			client.dot11Hdr = *dot11
+			client.radioTapHdr = *rtap
 		}
 		//fmt.Println(*client)
-		ap.AddClient(*client)
+		ap.AddClient(client)
 		aps.Add(ap.hwaddr.String(), ap)
 	}
 	return false
@@ -130,14 +126,14 @@ func main() {
 		}
 		if packet != nil {
 			radioTap := packet.Layer(layers.LayerTypeRadioTap)
-			data80211 := packet.Layer(layers.LayerTypeDot11)
-			if data80211 != nil && radioTap != nil {
-				rTap := radioTap.(*layers.RadioTap)
-				dot11 := data80211.(*layers.Dot11)
-				checkComms(dot11, rTap, &apList)
+			dot11 := packet.Layer(layers.LayerTypeDot11)
+			if dot11 != nil && radioTap != nil {
+				radioTap := radioTap.(*layers.RadioTap)
+				dot11 := dot11.(*layers.Dot11)
+				checkComms(dot11, radioTap, &apList)
 			}
 		}
-		if err := monIfa.DeauthClientsIfPast(time.Second * 30, &apList); err != nil {
+		if err := monIfa.DeauthClientsIfPast(time.Second * 12, &apList); err != nil {
 			log.Fatalln("JamConn.DeauthClientsIfPast()", err)
 		}
 	}

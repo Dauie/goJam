@@ -13,9 +13,9 @@ import (
 )
 
 type Client		struct {
-	hwaddr   net.HardwareAddr
-	radioHdr layers.RadioTap
-	dot11    layers.Dot11
+	hwaddr      net.HardwareAddr
+	radioTapHdr layers.RadioTap
+	dot11Hdr    layers.Dot11
 }
 
 type Station	struct {
@@ -54,13 +54,12 @@ func (s * Station) DelClient(addr net.HardwareAddr) {
 	delete(s.Clients, addr.String())
 }
 
-func (s * Station) GetClient(addr net.HardwareAddr) * Client {
+func (s * Station) GetClient(addr net.HardwareAddr) (bool, Client) {
 	if s.Clients != nil {
-		if client, ok := s.Clients[addr.String()]; ok {
-			return &client
-		}
+		ok, client := s.Clients[addr.String()]
+		return client, ok
 	}
-	return nil
+	return false, Client{}
 }
 
 func (s * Station) DecodeBSS(b []byte) error {
