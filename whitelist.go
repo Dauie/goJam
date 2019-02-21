@@ -31,8 +31,8 @@ func makeApWatchList(stations []Station, whiteList *List) List {
 	fmt.Printf("AP Watchlist\n")
 	for _, v := range stations {
 		if _, ok := whiteList.Get(v.SSID); !ok {
-			fmt.Printf("%s - %s\n", v.SSID ,v.BSSID.String())
-			apWatch.Add(v.BSSID.String(), v)
+			fmt.Printf("%s - %s\n", v.SSID ,v.hwaddr.String())
+			apWatch.Add(v.hwaddr.String(), v)
 		}
 	}
 	return apWatch

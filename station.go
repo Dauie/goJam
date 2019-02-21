@@ -13,16 +13,16 @@ import (
 )
 
 type Client		struct {
-	addr		net.HardwareAddr
-	radioHdr	*layers.RadioTap
-	dot11		*layers.Dot11
+	hwaddr   net.HardwareAddr
+	radioHdr layers.RadioTap
+	dot11    layers.Dot11
 }
 
 type Station	struct {
-	BSSID		net.HardwareAddr
-	SSID		string
-	Clients		map[string]Client
-	Freq		uint32
+	hwaddr  net.HardwareAddr
+	SSID    string
+	Clients map[string]Client
+	Freq    uint32
 }
 
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
@@ -43,7 +43,7 @@ func (s * Station) AddClient(client Client) {
 	if s.Clients == nil {
 		s.Clients = make(map[string]Client)
 	}
-	s.Clients[client.addr.String()] = client
+	s.Clients[client.hwaddr.String()] = client
 }
 
 func (s * Station) DelClient(addr net.HardwareAddr) {
@@ -52,6 +52,15 @@ func (s * Station) DelClient(addr net.HardwareAddr) {
 		return
 	}
 	delete(s.Clients, addr.String())
+}
+
+func (s * Station) GetClient(addr net.HardwareAddr) * Client {
+	if s.Clients != nil {
+		if client, ok := s.Clients[addr.String()]; ok {
+			return &client
+		}
+	}
+	return nil
 }
 
 func (s * Station) DecodeBSS(b []byte) error {
@@ -63,7 +72,7 @@ func (s * Station) DecodeBSS(b []byte) error {
 	for ad.Next() {
 		switch ad.Type() {
 		case nl80211.BSS_BSSID:
-			s.BSSID = ad.Bytes()
+			s.hwaddr = ad.Bytes()
 			break
 		case nl80211.BSS_INFORMATION_ELEMENTS:
 			ad.Do(s.getSSIDFromBSSIE)
@@ -80,6 +89,7 @@ func (s * Station) DecodeBSS(b []byte) error {
 func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
 
 	var stations = []Station{}
+
 	for _, v := range msgs {
 		ad, err := netlink.NewAttributeDecoder(v.Data)
 		if err != nil {

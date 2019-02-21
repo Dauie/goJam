@@ -8,10 +8,10 @@ type List		struct {
 	contents	map[string]Value
 }
 
-func (l* List)Get(key string) (Value, bool) {
+func (l* List)Get(key string) (* Value, bool) {
 
 	val, ok := l.contents[key]
-	return val, ok
+	return &val, ok
 }
 
 func (l* List)Del(key string) {

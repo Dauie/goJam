@@ -27,7 +27,6 @@ func getNL80211ScanMCID(fam *genetlink.Family) (uint32, error) {
 
 	scanMCID := uint32(0)
 	for _, v := range fam.Groups {
-		fmt.Println(v.Name)
 		if v.Name == "scan" {
 			scanMCID = v.ID
 		}

@@ -34,54 +34,39 @@ func handleSignals() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, lastComms *List, aps *List) bool {
+func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
 
-	var apMac net.HardwareAddr
-	var clientMac net.HardwareAddr
+	var fromCli = false
+	var rHdr *layers.RadioTap = nil
+	var	dotHdr *layers.Dot11 = nil
+	var cliAddr net.HardwareAddr
+	var apAddr net.HardwareAddr
+	var client *Client
 
-	bssid := dot11.Address3
-	if dot11.Address1.String() ==  bssid.String() {
-		apMac = dot11.Address1
-		clientMac = dot11.Address2
+	// If this message originated from the client
+	if dot11.Address1.String() == dot11.Address3.String() {
+		apAddr = dot11.Address1
+		cliAddr = dot11.Address2
 	} else {
-		apMac = dot11.Address2
-		clientMac = dot11.Address1
+		cliAddr = dot11.Address1
+		apAddr = dot11.Address2
+		fromCli = true
+		rHdr = rtap
+		dotHdr = dot11
 	}
-	if a, ok := aps.Get(apMac.String()); ok {
-		ap := a.(Station)
-		if v, ok := lastComms.Get(clientMac.String()); ok {
-			lastCom := v.(string)
-			if lastCom != apMac.String() {
-				if oap, ok := aps.Get(lastCom); ok {
-					fmt.Printf("client %s moved from %s to %s\n", clientMac.String(), lastCom, apMac.String())
-					oldAp := oap.(Station)
-					oldAp.DelClient(clientMac)
-				}
-			}
+	if a, ok := aps.Get(apAddr.String()); ok {
+		ap := (*a).(Station)
+		if client = ap.GetClient(cliAddr); client == nil {
+			client = new(Client)
+			client.hwaddr = cliAddr
 		}
-		var client Client
-		var rHdr *layers.RadioTap = nil
-		var	dotHdr *layers.Dot11 = nil
-
-		// If this message originated from the client
-		if dot11.Address1.String() != dot11.Address3.String() {
-			rHdr = rtap
-			dotHdr = dot11
+		if fromCli {
+			client.dot11 = *dotHdr
+			client.radioHdr = *rHdr
 		}
-		if client, ok = ap.Clients[clientMac.String()]; ok {
-			if client.radioHdr == nil {
-				client.dot11 = dotHdr
-				client.radioHdr = rHdr
-			} else {
-				client = Client{
-					addr: clientMac,
-					radioHdr: rHdr,
-					dot11: dotHdr,
-				}
-			}
-		}
-		lastComms.Add(clientMac.String(), apMac.String())
-		ap.AddClient(client)
+		//fmt.Println(*client)
+		ap.AddClient(*client)
+		aps.Add(ap.hwaddr.String(), ap)
 	}
 	return false
 }
@@ -121,10 +106,10 @@ func main() {
 	if err = monIfa.SetupPcapHandle(); err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
 	}
+	defer monIfa.handle.Close()
 	if err = monIfa.SetFilterForTargets(); err != nil {
 		log.Fatalln("JamConn.SetFilterForTargets()", err)
 	}
-	defer monIfa.handle.Close()
 	if err := monIfa.SetDeviceChannel(1); err != nil {
 		log.Fatalln("JamConn.SetDeviceChannel()", err.Error())
 	}
@@ -133,7 +118,6 @@ func main() {
 	if err != nil {
 		log.Fatalln("doAPScan()", err)
 	}
-	var clientList List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
@@ -150,7 +134,7 @@ func main() {
 			if data80211 != nil && radioTap != nil {
 				rTap := radioTap.(*layers.RadioTap)
 				dot11 := data80211.(*layers.Dot11)
-				checkComms(dot11, rTap, &clientList, &apList)
+				checkComms(dot11, rTap, &apList)
 			}
 		}
 		if err := monIfa.DeauthClientsIfPast(time.Second * 30, &apList); err != nil {

