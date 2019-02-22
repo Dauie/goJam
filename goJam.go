@@ -42,27 +42,28 @@ func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
 	var client Client
 
 	// If this message originated from the client
-	if dot11.Address1.String() == dot11.Address3.String() {
-		apAddr = dot11.Address1
-		cliAddr = dot11.Address2
-	} else {
-		cliAddr = dot11.Address1
-		apAddr = dot11.Address2
-		fromCli = true
-	}
-	if a, ok := aps.Get(apAddr.String()); ok {
-		ap := a.(Station)
-		if ok, client = ap.GetClient(cliAddr); !ok {
-			client = Client{}
-			client.hwaddr = cliAddr
+	if !dot11.Flags.FromDS() && !dot11.Flags.ToDS() {
+		if dot11.Address1.String() == dot11.Address3.String() {
+			apAddr = dot11.Address1
+			cliAddr = dot11.Address2
+		} else {
+			cliAddr = dot11.Address1
+			apAddr = dot11.Address2
+			fromCli = true
 		}
-		if fromCli {
-			client.dot11Hdr = *dot11
-			client.radioTapHdr = *rtap
+		if a, ok := aps.Get(apAddr.String()); ok {
+			ap := a.(Ap)
+			if ok, client = ap.GetClient(cliAddr); !ok {
+				client = Client{}
+				client.hwaddr = cliAddr
+			}
+			if fromCli {
+				client.dot11Hdr = *dot11
+				client.radioTapHdr = *rtap
+			}
+			ap.AddClient(client)
+			aps.Add(ap.hwaddr.String(), ap)
 		}
-		//fmt.Println(*client)
-		ap.AddClient(client)
-		aps.Add(ap.hwaddr.String(), ap)
 	}
 	return false
 }
@@ -75,11 +76,11 @@ func main() {
 	handleSignals()
 	utilIfa, err := NewJamConn(os.Args[1])
 	if err != nil {
-		log.Fatalln("NewJamConn() ", err)
+		log.Fatalln("NewJamConn()", err)
 	}
 	defer func(){
 		if err := utilIfa.nlconn.Close(); err != nil {
-			log.Fatalln("genetlink.Conn.Close() ", err)
+			log.Fatalln("genetlink.Conn.Close()", err)
 		}
 	}()
 	monIfa, err := NewJamConn(os.Args[2])
@@ -88,7 +89,7 @@ func main() {
 	}
 	defer func(){
 		if err := monIfa.nlconn.Close(); err != nil {
-			log.Fatalln("genetlink.Conn.Close() ", err)
+			log.Fatalln("genetlink.Conn.Close()", err)
 		}
 	}()
 	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
@@ -109,7 +110,10 @@ func main() {
 	if err := monIfa.SetDeviceChannel(1); err != nil {
 		log.Fatalln("JamConn.SetDeviceChannel()", err.Error())
 	}
-	whiteList := getWhiteListFromFile()
+	whiteList, err := getWhiteListFromFile()
+	if err != nil {
+		log.Fatalln("getWhiteListFromFile()", err)
+	}
 	apList, err := utilIfa.DoAPScan(&whiteList)
 	if err != nil {
 		log.Fatalln("doAPScan()", err)

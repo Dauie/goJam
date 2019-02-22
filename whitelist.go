@@ -2,29 +2,29 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 )
 
-func getWhiteListFromFile() List {
+func getWhiteListFromFile() (List, error) {
 
 	var whiteList List
 
 	file, err := os.Open(os.Args[3])
 	if err != nil {
-		log.Panicln()
+		return List{}, errors.New("os.Open(): " + os.Args[3] + " " + err.Error())
 	}
 	fscanner := bufio.NewScanner(file)
 	for fscanner.Scan() {
 		ssid := strings.TrimSpace(fscanner.Text())
 		whiteList.Add(ssid, true)
 	}
-	return whiteList
+	return whiteList, nil
 }
 
-func makeApWatchList(stations []Station, whiteList *List) List {
+func makeApWatchList(stations []Ap, whiteList *List) List {
 
 	var apWatch List
 

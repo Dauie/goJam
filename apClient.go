@@ -18,7 +18,7 @@ type Client		struct {
 	dot11Hdr    layers.Dot11
 }
 
-type Station	struct {
+type Ap struct {
 	hwaddr  net.HardwareAddr
 	SSID    string
 	Clients map[string]Client
@@ -27,7 +27,7 @@ type Station	struct {
 
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
 // or maybe im just an idiot
-func (s *Station) getSSIDFromBSSIE(b []byte) error {
+func (s *Ap) getSSIDFromBSSIE(b []byte) error {
 
 	ssidLen := uint(b[1])
 	if ssidLen != 0 {
@@ -38,7 +38,7 @@ func (s *Station) getSSIDFromBSSIE(b []byte) error {
 	return nil
 }
 
-func (s * Station) AddClient(client Client) {
+func (s *Ap) AddClient(client Client) {
 
 	if s.Clients == nil {
 		s.Clients = make(map[string]Client)
@@ -46,7 +46,7 @@ func (s * Station) AddClient(client Client) {
 	s.Clients[client.hwaddr.String()] = client
 }
 
-func (s * Station) DelClient(addr net.HardwareAddr) {
+func (s *Ap) DelClient(addr net.HardwareAddr) {
 
 	if s.Clients == nil {
 		return
@@ -54,7 +54,7 @@ func (s * Station) DelClient(addr net.HardwareAddr) {
 	delete(s.Clients, addr.String())
 }
 
-func (s * Station) GetClient(addr net.HardwareAddr) (bool, Client) {
+func (s *Ap) GetClient(addr net.HardwareAddr) (bool, Client) {
 	if s.Clients != nil {
 		ok, client := s.Clients[addr.String()]
 		return client, ok
@@ -62,7 +62,7 @@ func (s * Station) GetClient(addr net.HardwareAddr) (bool, Client) {
 	return false, Client{}
 }
 
-func (s * Station) DecodeBSS(b []byte) error {
+func (s *Ap) DecodeBSS(b []byte) error {
 
 	ad, err := netlink.NewAttributeDecoder(b)
 	if err != nil {
@@ -85,16 +85,16 @@ func (s * Station) DecodeBSS(b []byte) error {
 	return nil
 }
 
-func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
+func decodeScanResults(msgs []genetlink.Message) ([]Ap, error) {
 
-	var stations = []Station{}
+	var aps = []Ap{}
 
 	for _, v := range msgs {
 		ad, err := netlink.NewAttributeDecoder(v.Data)
 		if err != nil {
 			return nil, errors.New("netlink.NewAttributeeDecoder() " + err.Error())
 		}
-		var ap Station
+		var ap Ap
 		for ad.Next() {
 			switch ad.Type() {
 			case nl80211.ATTR_BSS:
@@ -104,7 +104,7 @@ func decodeScanResults(msgs []genetlink.Message) ([]Station, error) {
 				break
 			}
 		}
-		stations = append(stations, ap)
+		aps = append(aps, ap)
 	}
-	return stations, nil
+	return aps, nil
 }
