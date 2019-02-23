@@ -2,10 +2,10 @@ package main
 
 import (
 	"errors"
-	"github.com/google/gopacket/layers"
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/dauie/go-netlink/nl80211"
 	"github.com/mdlayher/genetlink"
@@ -13,16 +13,13 @@ import (
 )
 
 type Client		struct {
-	hwaddr      net.HardwareAddr
-	radioTapHdr layers.RadioTap
-	dot11Hdr    layers.Dot11
+	hwaddr		net.HardwareAddr
+	lastDeauth	time.Time
 }
 
 type Ap struct {
-	radioTapHdr layers.RadioTap
 	hwaddr  net.HardwareAddr
 	SSID    string
-	Clients map[string]Client
 	Freq    uint32
 }
 
@@ -37,30 +34,6 @@ func (s *Ap) getSSIDFromBSSIE(b []byte) error {
 		s.SSID = NoSSID
 	}
 	return nil
-}
-
-func (s *Ap) AddClient(client Client) {
-
-	if s.Clients == nil {
-		s.Clients = make(map[string]Client)
-	}
-	s.Clients[client.hwaddr.String()] = client
-}
-
-func (s *Ap) DelClient(addr net.HardwareAddr) {
-
-	if s.Clients == nil {
-		return
-	}
-	delete(s.Clients, addr.String())
-}
-
-func (s *Ap) GetClient(addr net.HardwareAddr) (bool, Client) {
-	if s.Clients != nil {
-		ok, client := s.Clients[addr.String()]
-		return client, ok
-	}
-	return false, Client{}
 }
 
 func (s *Ap) DecodeBSS(b []byte) error {

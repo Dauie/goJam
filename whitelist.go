@@ -12,7 +12,7 @@ func getWhiteListFromFile() (List, error) {
 
 	var whiteList List
 
-	file, err := os.Open(os.Args[3])
+	file, err := os.Open(os.Args[2])
 	if err != nil {
 		return List{}, errors.New("os.Open(): " + os.Args[3] + " " + err.Error())
 	}
@@ -32,7 +32,7 @@ func makeApWatchList(stations []Ap, whiteList *List) List {
 	for _, v := range stations {
 		if _, ok := whiteList.Get(v.SSID); !ok {
 			fmt.Printf("%s - %s\n", v.SSID ,v.hwaddr.String())
-			apWatch.Add(v.hwaddr.String(), v)
+			apWatch.Add(v.hwaddr.String()[0:16], v)
 		}
 	}
 	return apWatch
