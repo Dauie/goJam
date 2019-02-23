@@ -19,6 +19,7 @@ type Client		struct {
 }
 
 type Ap struct {
+	radioTapHdr layers.RadioTap
 	hwaddr  net.HardwareAddr
 	SSID    string
 	Clients map[string]Client

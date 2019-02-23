@@ -41,7 +41,7 @@ func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
 	var apAddr net.HardwareAddr
 	var client Client
 
-	// If this message originated from the client
+	// If this message is wiphy to wiphy and originated from the client
 	if !dot11.Flags.FromDS() && !dot11.Flags.ToDS() {
 		if dot11.Address1.String() == dot11.Address3.String() {
 			apAddr = dot11.Address1
@@ -60,6 +60,8 @@ func checkComms(dot11 *layers.Dot11, rtap *layers.RadioTap, aps *List) bool {
 			if fromCli {
 				client.dot11Hdr = *dot11
 				client.radioTapHdr = *rtap
+			} else {
+				ap.radioTapHdr = *rtap
 			}
 			ap.AddClient(client)
 			aps.Add(ap.hwaddr.String(), ap)
@@ -137,7 +139,7 @@ func main() {
 				checkComms(dot11, radioTap, &apList)
 			}
 		}
-		if err := monIfa.DeauthClientsIfPast(time.Second * 12, &apList); err != nil {
+		if err := monIfa.DeauthClientsIfPast(time.Second * 7, &apList); err != nil {
 			log.Fatalln("JamConn.DeauthClientsIfPast()", err)
 		}
 	}
