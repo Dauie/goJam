@@ -30,9 +30,9 @@ func appendApWatchList(scanResults []Ap, aps *List, whiteList *List) List {
 
 	fmt.Printf("AP watchlist updating...\n")
 	for _, v := range scanResults {
-		if _, ok := whiteList.Get(v.SSID); !ok {
+		if _, ok := whiteList.Get(v.ssid); !ok {
 			if _, ok := aps.Get(v.hwaddr.String()[0:16]); !ok {
-				fmt.Printf("%s - %s\n", v.SSID ,v.hwaddr.String())
+				fmt.Printf("%s - %s\n", v.ssid,v.hwaddr.String())
 				//TODO find a way to limit this by antenna count
 				//leave off the last character to catch devices with multiple anten.
 				aps.Add(v.hwaddr.String()[0:16], v)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/google/gopacket/layers"
 	"log"
 	"net"
 	"strings"
@@ -13,14 +14,41 @@ import (
 )
 
 type Client		struct {
+	tap			layers.RadioTap
 	hwaddr		net.HardwareAddr
 	lastDeauth	time.Time
 }
 
 type Ap struct {
 	hwaddr  net.HardwareAddr
-	SSID    string
-	Freq    uint32
+	ssid    string
+	freq    uint32
+	tap     layers.RadioTap
+	clients map[string]Client
+}
+
+func (s *Ap) AddClient(client Client) {
+
+	if s.clients == nil {
+		s.clients = make(map[string]Client)
+	}
+	s.clients[client.hwaddr.String()] = client
+}
+
+func (s *Ap) DelClient(addr net.HardwareAddr) {
+
+	if s.clients == nil {
+		return
+	}
+	delete(s.clients, addr.String())
+}
+
+func (s *Ap) GetClient(addr net.HardwareAddr) (Client, bool) {
+	if s.clients != nil {
+		client, ok := s.clients[addr.String()]
+		return client, ok
+	}
+	return Client{}, false
 }
 
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
@@ -29,9 +57,9 @@ func (s *Ap) getSSIDFromBSSIE(b []byte) error {
 
 	ssidLen := uint(b[1])
 	if ssidLen != 0 {
-		s.SSID = strings.TrimSpace(string(b[2:ssidLen + 2]))
+		s.ssid = strings.TrimSpace(string(b[2:ssidLen + 2]))
 	} else {
-		s.SSID = NoSSID
+		s.ssid = NoSSID
 	}
 	return nil
 }
@@ -51,7 +79,7 @@ func (s *Ap) DecodeBSS(b []byte) error {
 			ad.Do(s.getSSIDFromBSSIE)
 			break
 		case nl80211.BSS_FREQUENCY:
-			s.Freq = ad.Uint32()
+			s.freq = ad.Uint32()
 		default:
 			break
 		}
