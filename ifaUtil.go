@@ -23,7 +23,7 @@ func getInterface(targetIface string) (net.Interface, error) {
 	return net.Interface{}, fmt.Errorf("interface %s not found", targetIface)
 }
 
-func getNL80211ScanMCID(fam *genetlink.Family) (uint32, error) {
+func getDot11ScanMCID(fam *genetlink.Family) (uint32, error) {
 
 	scanMCID := uint32(0)
 	for _, v := range fam.Groups {

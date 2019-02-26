@@ -8,7 +8,7 @@ type Channel struct {
 }
 
 var (
-	ChansG  = []Channel {
+	ChanArrG = []Channel {
 		{ LowerFreq: 2401, CenterFreq: 2412, UpperFreq: 2423, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
 		{ LowerFreq: 2406, CenterFreq: 2412, UpperFreq: 2428, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
 		{ LowerFreq: 2411, CenterFreq: 2422, UpperFreq: 2433, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
@@ -49,3 +49,20 @@ var (
 		//{ CenterFreq: 5825, ChanWidth: NL_80211_CHAN_WIDTH_40 },
 	}
 )
+
+var ChanMapG = map[uint16]Channel {
+	2412: { LowerFreq: 2401, CenterFreq: 2412, UpperFreq: 2423, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2417: { LowerFreq: 2406, CenterFreq: 2417, UpperFreq: 2428, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2422: { LowerFreq: 2411, CenterFreq: 2422, UpperFreq: 2433, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2427: { LowerFreq: 2416, CenterFreq: 2427, UpperFreq: 2438, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2432: { LowerFreq: 2421, CenterFreq: 2432, UpperFreq: 2443, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2437: { LowerFreq: 2426, CenterFreq: 2437, UpperFreq: 2448, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2442: { LowerFreq: 2431, CenterFreq: 2442, UpperFreq: 2453, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2447: { LowerFreq: 2436, CenterFreq: 2447, UpperFreq: 2458, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2452: { LowerFreq: 2441, CenterFreq: 2452, UpperFreq: 2463, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
+	2457: { LowerFreq: 2446, CenterFreq: 2457, UpperFreq: 2468, ChanWidth: NL_80211_CHAN_WIDTH_20  },
+	2462: { LowerFreq: 2451, CenterFreq: 2462, UpperFreq: 2473, ChanWidth: NL_80211_CHAN_WIDTH_20  },
+	2467: { LowerFreq: 2456, CenterFreq: 2467, UpperFreq:	2478, ChanWidth: NL_80211_CHAN_WIDTH_20  },
+	2472: { LowerFreq: 2461, CenterFreq: 2472, UpperFreq:	2483, ChanWidth: NL_80211_CHAN_WIDTH_20  },
+	2484: { LowerFreq: 2473, CenterFreq: 2484, UpperFreq:	2495, ChanWidth: NL_80211_CHAN_WIDTH_20  },
+}

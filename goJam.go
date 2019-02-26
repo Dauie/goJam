@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"github.com/dauie/go-netlink/nl80211"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/dauie/go-netlink/nl80211"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
@@ -21,7 +22,7 @@ func help() {
 	os.Exit(1)
 }
 
-func handleSignals() {
+func handleSigInt() {
 
 	sigc := make(chan os.Signal, 1)
 	go func () {
@@ -45,6 +46,7 @@ func checkComms(conn *JamConn, aps *List, clients *List, pkt gopacket.Packet) {
 	}
 	tap := radioTap.(*layers.RadioTap)
 	dot := dot11.(*layers.Dot11)
+	// Wireless to wireless comms?
 	if dot.Flags.FromDS() || dot.Flags.ToDS() {
 		return
 	}
@@ -76,12 +78,22 @@ func checkComms(conn *JamConn, aps *List, clients *List, pkt gopacket.Packet) {
 	clients.Add(cli.hwaddr.String(), cli)
 }
 
+func initEnv() {
+	//set rand seed
+	rand.Seed(time.Now().UTC().UnixNano())
+	//catch sigint
+	handleSigInt()
+}
+
 func main() {
+
+	var apList List
 
 	if len(os.Args) < 3 {
 		help()
 	}
-	handleSignals()
+	initEnv()
+	whiteList, err := getWhiteListFromFile(os.Args[2])
 	monIfa, err := NewJamConn(os.Args[1])
 	if err != nil {
 		log.Fatalln("NewJamConn()", err)
@@ -91,19 +103,14 @@ func main() {
 			log.Fatalln("genetlink.Conn.Close()", err)
 		}
 	}()
-	whiteList, err := getWhiteListFromFile()
-	apList, err := monIfa.DoAPScan(&whiteList)
-	if err != nil {
-		log.Fatalln("doAPScan()", err)
-	}
-	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
-		log.Fatalln("JamConn.SetIfaType()", err.Error())
-	}
 	defer func() {
 		if err := monIfa.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
 			log.Fatalln("JamConn.SetIfaType()", err.Error())
 		}
 	}()
+	if err := monIfa.DoAPScan(&whiteList, &apList); err != nil {
+		log.Fatalln("JamConn.DoAPScan()", err)
+	}
 	if err = monIfa.SetupPcapHandle(); err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
 	}
@@ -111,16 +118,12 @@ func main() {
 	if err = monIfa.SetFilterForTargets(); err != nil {
 		log.Fatalln("JamConn.SetFilterForTargets()", err)
 	}
-	if err := monIfa.SetDeviceChannel(1); err != nil {
-		log.Fatalln("JamConn.SetDeviceChannel()", err.Error())
-	}
 	if err != nil {
 		log.Fatalln("getWhiteListFromFile()", err)
 	}
 	var clients List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
-	monIfa.SetLastDeauth(time.Now())
 	for !QuitSIGINT {
 		packet, err := packSrc.NextPacket()
 		if err != nil {
@@ -129,7 +132,8 @@ func main() {
 			}
 		}
 		checkComms(monIfa, &apList, &clients, packet)
+		//monIfa.ChangeChanIfPast(time.Second * 5)
+		monIfa.DoAPScanIfPast(time.Minute * 1, &whiteList, &apList)
 	}
-		//monIfa.ChangeChanIfPast(time.Second * 2)
 }
 
