@@ -15,22 +15,24 @@ import (
 
 type Client		struct {
 	tap			layers.RadioTap
+	dot			layers.Dot11
 	hwaddr		net.HardwareAddr
 	lastDeauth	time.Time
 }
 
-type Ap struct {
-	hwaddr  net.HardwareAddr
-	ssid    string
-	freq    uint32
-	tap     layers.RadioTap
-	clients map[string]Client
+type Ap			struct {
+	hwaddr		net.HardwareAddr
+	ssid		string
+	freq		uint32
+	tap			layers.RadioTap
+	dot			layers.Dot11
+	clients		map[string]*Client
 }
 
-func (s *Ap) AddClient(client Client) {
+func (s *Ap) AddClient(client *Client) {
 
 	if s.clients == nil {
-		s.clients = make(map[string]Client)
+		s.clients = make(map[string]*Client)
 	}
 	s.clients[client.hwaddr.String()] = client
 }
@@ -43,12 +45,12 @@ func (s *Ap) DelClient(addr net.HardwareAddr) {
 	delete(s.clients, addr.String())
 }
 
-func (s *Ap) GetClient(addr net.HardwareAddr) (Client, bool) {
+func (s *Ap) GetClient(addr net.HardwareAddr) (*Client, bool) {
 	if s.clients != nil {
 		client, ok := s.clients[addr.String()]
 		return client, ok
 	}
-	return Client{}, false
+	return nil, false
 }
 
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs

