@@ -87,6 +87,10 @@ func (conn *JamConn) SetDeviceChannel(c int) error {
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
+		if err.Error() == "invalid argument" {
+			fmt.Printf("cannot change to frequency %dMhz", chann.CenterFreq)
+			return nil
+		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
 	return nil
@@ -96,7 +100,7 @@ func (conn *JamConn) SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 
 	chann, ok := ChanMapG[uint16(freq)]
 	if !ok {
-		return errors.New("channel not found")
+		return errors.New("channel not found " + freq.String())
 	}
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
@@ -117,6 +121,10 @@ func (conn *JamConn) SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
+		if err.Error() == "invalid argument" {
+			fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
+			return nil
+		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
 	return nil
@@ -404,8 +412,10 @@ func (conn *JamConn) Deauthenticate(count uint16, reason layers.Dot11Reason, src
 	var i uint16
 	var opts gopacket.SerializeOptions
 
-	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
-		fmt.Println(err)
+	if tap.ChannelFrequency != 0 {
+		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
+			fmt.Println(err)
+		}
 	}
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
@@ -493,6 +503,9 @@ func (conn* JamConn) TriggerScan() (bool, error) {
 	for !done {
 		msgs, _, err := conn.nlconn.Receive()
 		if err != nil {
+			if err.Error() == "device or resource busy" {
+				continue
+			}
 			return false, errors.New("genetlink.Conn.Recieve() " + err.Error())
 		}
 		for _, m := range msgs {

@@ -104,6 +104,9 @@ func main() {
 	}
 	initEnv()
 	whiteList, err := getWhiteListFromFile(os.Args[2])
+	if err != nil {
+		log.Fatalln("getWhiteListFromFile()", err)
+	}
 	monIfa, err := NewJamConn(os.Args[1])
 	if err != nil {
 		log.Fatalln("NewJamConn()", err)
@@ -127,9 +130,6 @@ func main() {
 	defer monIfa.handle.Close()
 	if err = monIfa.SetFilterForTargets(); err != nil {
 		log.Fatalln("JamConn.SetFilterForTargets()", err)
-	}
-	if err != nil {
-		log.Fatalln("getWhiteListFromFile()", err)
 	}
 	var clients List
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
