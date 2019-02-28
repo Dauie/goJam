@@ -6,7 +6,8 @@ import (
 	"os"
 )
 
-func main() {
+func	main() {
+
 	if len(os.Args) < 2 {
 		fmt.Printf("useage: ./%s <iface>", os.Args[0])
 		os.Exit(1)

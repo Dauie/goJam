@@ -8,10 +8,13 @@ import (
 	"strings"
 )
 
-func getWhiteListFromFile(filename string) (List, error) {
+func	getWhiteListFromFile(filename string) (List, error) {
 
 	var whiteList List
 
+	if filename == "none" {
+		return List{}, nil
+	}
 	file, err := os.Open(filename)
 	if err != nil {
 		return List{}, errors.New("os.Open(): " + os.Args[3] + " " + err.Error())
@@ -24,7 +27,7 @@ func getWhiteListFromFile(filename string) (List, error) {
 	return whiteList, nil
 }
 
-func appendApWatchList(scanResults []Ap, aps *List, whiteList *List) List {
+func	appendApWatchList(scanResults []Ap, aps *List, whiteList *List) List {
 
 	var apWatch List
 

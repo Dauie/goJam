@@ -9,7 +9,7 @@ import (
 	"github.com/mdlayher/genetlink"
 )
 
-func getInterface(targetIface string) (net.Interface, error) {
+func	getInterface(targetIface string) (net.Interface, error) {
 
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -23,7 +23,7 @@ func getInterface(targetIface string) (net.Interface, error) {
 	return net.Interface{}, fmt.Errorf("interface %s not found", targetIface)
 }
 
-func getDot11ScanMCID(fam *genetlink.Family) (uint32, error) {
+func	getDot11ScanMCID(fam *genetlink.Family) (uint32, error) {
 
 	scanMCID := uint32(0)
 	for _, v := range fam.Groups {
@@ -37,7 +37,7 @@ func getDot11ScanMCID(fam *genetlink.Family) (uint32, error) {
 	return scanMCID, nil
 }
 
-func getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
+func	getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 
 	fam, err := conn.GetFamily("nl80211")
 	if err != nil {

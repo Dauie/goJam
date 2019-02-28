@@ -18,12 +18,13 @@ import (
 
 var QuitSIGINT = false
 
-func help() {
+func	help() {
+
 	fmt.Printf("useage: %s <iface> <whitelist | 'none'>\n", os.Args[0])
 	os.Exit(1)
 }
 
-func handleSigInt() {
+func	handleSigInt() {
 
 	sigc := make(chan os.Signal, 1)
 	go func () {
@@ -35,12 +36,12 @@ func handleSigInt() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func checkComms(aps *List, clients *List, pkt gopacket.Packet) {
+func	checkComms(aps *List, clients *List, pkt gopacket.Packet) {
 
-	var cli *Client
-	var ap Ap
-	var cliAddr net.HardwareAddr
-	var apAddr net.HardwareAddr
+	var cli		*Client
+	var ap		Ap
+	var cliAddr	net.HardwareAddr
+	var apAddr	net.HardwareAddr
 	var fromClient = false
 
 	if pkt == nil {
@@ -53,7 +54,7 @@ func checkComms(aps *List, clients *List, pkt gopacket.Packet) {
 	}
 	tap := radioTap.(*layers.RadioTap)
 	dot := dot11.(*layers.Dot11)
-	// originated from client?
+	// did the message originate from the client?
 	if dot.Address1.String() != dot.Address3.String() {
 		cliAddr = dot.Address1
 		apAddr = dot.Address2
@@ -62,14 +63,13 @@ func checkComms(aps *List, clients *List, pkt gopacket.Packet) {
 		apAddr = dot.Address1
 		cliAddr = dot.Address2
 	}
-	if len(apAddr.String()) < 16 {
-		return
-	}
+	// is the ap on our watch list?
 	if a, ok := aps.Get(apAddr.String()[:16]); ok {
 		ap = (a).(Ap)
 	} else {
 		return
 	}
+	// have we seen this client before?
 	if v, ok := clients.Get(cliAddr.String()); ok {
 		cli = (v).(*Client)
 	} else {
@@ -88,16 +88,18 @@ func checkComms(aps *List, clients *List, pkt gopacket.Packet) {
 	aps.Add(ap.hwaddr.String()[0:16], ap)
 }
 
-func initEnv() {
+func	initEnv() {
+
 	//set rand seed
 	rand.Seed(time.Now().UTC().UnixNano())
 	//catch sigint
 	handleSigInt()
 }
 
-func main() {
+func	main() {
 
-	var apList List
+	var apList	List
+	var clients	List
 
 	if len(os.Args) < 3 {
 		help()
@@ -124,14 +126,14 @@ func main() {
 	if err := monIfa.DoAPScan(&whiteList, &apList); err != nil {
 		log.Fatalln("JamConn.DoAPScan()", err)
 	}
-	if err = monIfa.SetupPcapHandle(); err != nil {
+	if err := monIfa.SetupPcapHandle(); err != nil {
 		log.Fatalln("setupPcapHandle() ", err)
 	}
 	defer monIfa.handle.Close()
-	if err = monIfa.SetFilterForTargets(); err != nil {
+	if err := monIfa.SetFilterForTargets(); err != nil {
 		log.Fatalln("JamConn.SetFilterForTargets()", err)
 	}
-	var clients List
+
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
@@ -143,7 +145,7 @@ func main() {
 			}
 		}
 		checkComms(&apList, &clients, packet)
-		monIfa.ChangeChanIfPast(time.Second * 5)
+		//monIfa.ChangeChanIfPast(time.Second * 5)
 		monIfa.DeauthClientsIfPast(time.Second * 5,2,  &apList)
 		monIfa.DoAPScanIfPast(time.Minute * 1, &whiteList, &apList)
 	}
