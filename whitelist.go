@@ -17,7 +17,7 @@ func getListFromFile(filename string) (List, error) {
 	}
 	file, err := os.Open(filename)
 	if err != nil {
-		return List{}, errors.New("os.Open() " + os.Args[3] + " " + err.Error())
+		return List{}, errors.New("os.Open() " + filename + " " + err.Error())
 	}
 	fscanner := bufio.NewScanner(file)
 	for fscanner.Scan() {

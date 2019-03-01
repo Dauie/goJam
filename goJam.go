@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/jessevdk/go-flags"
 	"log"
 	"math/rand"
@@ -24,12 +23,6 @@ type Opts struct {
 }
 
 var QuitG = false
-
-func	help() {
-
-	fmt.Printf("useage: %s <iface> <whitelist | 'none'>\n", os.Args[0])
-	os.Exit(1)
-}
 
 func	handleSigInt() {
 
