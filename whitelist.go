@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 )
@@ -16,6 +17,11 @@ func getListFromFile(filename string) (List, error) {
 		return list, nil
 	}
 	file, err := os.Open(filename)
+	defer func(){
+		if err := file.Close(); err != nil {
+			log.Panicln("os.File.Close()", err)
+		}
+	}()
 	if err != nil {
 		return List{}, errors.New("os.Open() " + filename + " " + err.Error())
 	}
@@ -31,11 +37,15 @@ func	appendApWatchList(scanResults []Ap, aps *List, whiteList *List) List {
 
 	var apWatch List
 
-	fmt.Printf("AP watchlist updating...\n")
+	if !OptsG.GuiMode {
+		fmt.Printf("AP watchlist updating...\n")
+	}
 	for _, v := range scanResults {
 		if _, ok := whiteList.Get(v.ssid); !ok {
 			if _, ok := aps.Get(v.hwaddr.String()[0:16]); !ok {
-				fmt.Printf("%s - %s\n", v.ssid,v.hwaddr.String())
+				if !OptsG.GuiMode {
+					fmt.Printf("%s - %s\n", v.ssid,v.hwaddr.String())
+				}
 				//TODO find a way to limit this by antenna count
 				//leave off the last character to catch devices with multiple anten.
 				aps.Add(v.hwaddr.String()[0:16], v)

@@ -89,7 +89,7 @@ func	(conn *JamConn)	SetDeviceChannel(c int) error {
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
-		if err.Error() == "invalid argument" {
+		if err.Error() == "invalid argument" && !OptsG.GuiMode {
 			fmt.Printf("cannot change to frequency %dMhz", chann.CenterFreq)
 			return nil
 		}
@@ -123,7 +123,7 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
-		if err.Error() == "invalid argument" {
+		if err.Error() == "invalid argument" && !OptsG.GuiMode {
 			fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
 			return nil
 		}
@@ -153,11 +153,13 @@ func	(conn *JamConn)	SendScanAbort() error {
 	if err != nil {
 		if err != syscall.ENOENT {
 			return errors.New("genetlink.Conn.Execute() " + err.Error())
-		} else {
-			log.Println("no active scan")
+		} else if !OptsG.GuiMode {
+			fmt.Println("no active scan")
 		}
 	} else {
-		fmt.Println("scan aborted")
+		if !OptsG.GuiMode {
+			fmt.Println("scan aborted")
+		}
 	}
 	return nil
 }
@@ -355,14 +357,14 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 				if err := conn.Deauthenticate(
 				count, layers.Dot11ReasonDeauthStLeaving,
 				cli.hwaddr, ap.hwaddr,
-				&cli.tap, &cli.dot); err != nil {
+				cli.tap, cli.dot); err != nil {
 					log.Panicln("JamConn.Deauthenticate() " + err.Error())
 				}
 				//Previous authentication no longer valid.
 				if err := conn.Deauthenticate(
 					count, 0x2,
 					ap.hwaddr, cli.hwaddr,
-					&ap.tap, &ap.dot); err != nil {
+					ap.tap, ap.dot); err != nil {
 					log.Panicln("JamConn.Deauthenticate() " + err.Error())
 				}
 			}
@@ -401,21 +403,22 @@ func	createDot11Header(msgType layers.Dot11Type,
 func	(conn *JamConn)	Deauthenticate(
 			count uint16, reason layers.Dot11Reason,
 			src net.HardwareAddr, dst net.HardwareAddr,
-			tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
+			tap layers.RadioTap, dot11Orig layers.Dot11) error {
 
 	var i		uint16
 	var opts	gopacket.SerializeOptions
 	var buff	gopacket.SerializeBuffer
 
 	if tap.ChannelFrequency != 0 {
-		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
+		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil && !OptsG.GuiMode {
 			fmt.Println(err)
 		}
 	}
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
-
-	fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
+	if !OptsG.GuiMode {
+		fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
+	}
 	for i = 1; i <= count; i++ {
 		buff = gopacket.NewSerializeBuffer()
 		dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
@@ -424,7 +427,7 @@ func	(conn *JamConn)	Deauthenticate(
 			Reason: reason,
 		}
 		if err := gopacket.SerializeLayers(buff, opts,
-			tap,
+			&tap,
 			&dot11,
 			&mgmt,
 		); err != nil {
@@ -440,12 +443,12 @@ func	(conn *JamConn)	Deauthenticate(
 
 func	(conn *JamConn)	Disassociate(
 			src net.HardwareAddr, dst net.HardwareAddr,
-			tap *layers.RadioTap, dot11Orig *layers.Dot11) error {
+			tap layers.RadioTap, dot11Orig layers.Dot11) error {
 
 	var buff	gopacket.SerializeBuffer
 	var opts	gopacket.SerializeOptions
 
-	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
+	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil && !OptsG.GuiMode {
 		fmt.Println(err)
 	}
 	buff = gopacket.NewSerializeBuffer()
@@ -457,7 +460,7 @@ func	(conn *JamConn)	Disassociate(
 		Reason: layers.Dot11ReasonDisasStLeaving,
 	}
 	if err := gopacket.SerializeLayers(buff, opts,
-		tap,
+		&tap,
 		&dot11,
 		&mgmt,
 	); err != nil {
@@ -466,7 +469,9 @@ func	(conn *JamConn)	Disassociate(
 	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 		return errors.New("Handle.WritePacketData() " + err.Error())
 	}
-	fmt.Printf("deauthing src %s - from %s\n", src.String(), dst.String())
+	if !OptsG.GuiMode {
+		fmt.Printf("deauthing src %s - from %s\n", src.String(), dst.String())
+	}
 	return nil
 }
 

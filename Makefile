@@ -1,7 +1,7 @@
 default: build
 
 build:
-	go build goJam.go jamConn.go list.go apClient.go chans.go ifaUtil.go constants.go whitelist.go
+	go build goJam.go jamConn.go list.go apClient.go chans.go ifaUtil.go constants.go whitelist.go gui.go
 
 clean:
 	@rm goJam

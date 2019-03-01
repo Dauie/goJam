@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/jessevdk/go-flags"
+	"github.com/jroimartin/gocui"
 	"log"
 	"math/rand"
 	"net"
@@ -13,16 +13,26 @@ import (
 	"github.com/dauie/go-netlink/nl80211"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/jessevdk/go-flags"
 )
 
 type Opts struct {
-	MonitorInterface	string	`short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
-	ClientWhiteList		string	`short:"c" long:"cwlist" description:"file with new line separated list of MACs to be spared"`
-	APWhiteList			string	`short:"a" long:"awlist" description:"file with new line separated list of SSIDs to be spared"`
-	EnableGui			bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
+	MonitorInterface string `short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
+	ClientWhiteList  string `short:"c" long:"cwlist" description:"file with new line separated list of MACs to be spared"`
+	APWhiteList      string `short:"a" long:"awlist" description:"file with new line separated list of SSIDs to be spared"`
+	GuiMode          bool   `short:"g" long:"gui" description:"enable gui mode for manual control"`
 }
 
-var QuitG = false
+var (
+	OptsG Opts
+	MonIfaGuiG *JamConn
+	WListAPGuiG *List
+	WListCliGuiG *List
+	TargAPGuiG *List
+	TargCliGuiG *List
+	PktSrcG *gopacket.PacketSource
+	QuitG = false
+)
 
 func	handleSigInt() {
 
@@ -36,7 +46,7 @@ func	handleSigInt() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func	checkComms(targAPs *List, targClis *List, wListClis *List, pkt gopacket.Packet) {
+func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packet) {
 
 	var cli		*Client
 	var ap		Ap
@@ -64,7 +74,7 @@ func	checkComms(targAPs *List, targClis *List, wListClis *List, pkt gopacket.Pac
 		cliAddr = dot.Address2
 	}
 	// is the client whitelisted?
-	if _, ok := wListClis.Get(cliAddr.String()); ok {
+	if _, ok := wListCli.Get(cliAddr.String()); ok {
 		return
 	}
 	// is the ap on our target list?
@@ -74,7 +84,7 @@ func	checkComms(targAPs *List, targClis *List, wListClis *List, pkt gopacket.Pac
 		return
 	}
 	// have we seen this client before?
-	if v, ok := targClis.Get(cliAddr.String()); ok {
+	if v, ok := targCli.Get(cliAddr.String()); ok {
 		cli = (v).(*Client)
 	} else {
 		cli = new(Client)
@@ -87,7 +97,7 @@ func	checkComms(targAPs *List, targClis *List, wListClis *List, pkt gopacket.Pac
 		ap.dot = *dot
 		ap.tap = *tap
 	}
-	targClis.Add(cli.hwaddr.String(), cli)
+	targCli.Add(cli.hwaddr.String(), cli)
 	ap.AddClient(cli)
 	targAPs.Add(ap.hwaddr.String()[0:16], ap)
 }
@@ -112,20 +122,59 @@ func	initEnv() {
 	handleSigInt()
 }
 
+func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListCli *List) {
+
+	MonIfaGuiG = monIfa
+	WListAPGuiG = wListAP
+	WListCliGuiG = wListCli
+	TargAPGuiG = targAP
+	TargCliGuiG = clients
+	PktSrcG = gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
+	gui, err := initGui()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer gui.Close()
+	gui.SetManagerFunc(goJamGui)
+	if err := keybindings(gui); err != nil {
+		log.Fatalln(err)
+	}
+	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
+		log.Fatalln(err)
+	}
+}
+
+func	cliMode(monIfa *JamConn, targAPs *List, targClis *List, wListAPs *List, wListCli *List) {
+
+	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
+	for !QuitG {
+		packet, err := packSrc.NextPacket()
+		if err != nil {
+			if err.Error() == "Read Error" {
+				log.Fatalln("gopacket.PacketSource.NextPacket()", err,
+					"\ndevice possibly disconnected or removed from monitor mode")
+			}
+			if err.Error() != "Timeout Expired" {
+				log.Fatalln("gopacket.PacketSource.NextPacket()", err.Error())
+			}
+		}
+		checkComms(targAPs, targClis, wListCli, packet)
+		monIfa.DeauthClientsIfPast(time.Second * 5,2, targAPs)
+		monIfa.DoAPScanIfPast(time.Minute * 1, wListAPs, targAPs)
+	}
+}
+
 func	main() {
 
-	var opts		Opts
-	var wListAPs	List
-	var wListCli	List
 	var targAPs		List
 	var targClis	List
 
 	initEnv()
-	if _, err := flags.ParseArgs(&opts, os.Args); err != nil {
+	if _, err := flags.ParseArgs(&OptsG, os.Args); err != nil {
 		os.Exit(1)
 	}
-	wListCli, wListAPs = getWhiteLists(&opts)
-	monIfa, err := NewJamConn(opts.MonitorInterface)
+	wListCli, wListAPs := getWhiteLists(&OptsG)
+	monIfa, err := NewJamConn(OptsG.MonitorInterface)
 	if err != nil {
 		log.Fatalln("NewJamConn()", err)
 	}
@@ -152,22 +201,11 @@ func	main() {
 	if err := monIfa.SetFilterForTargets(); err != nil {
 		log.Fatalln("JamConn.SetFilterForTargets()", err)
 	}
-	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
-	for !QuitG {
-		packet, err := packSrc.NextPacket()
-		if err != nil {
-			if err.Error() == "Read Error" {
-				log.Fatalln("gopacket.PacketSource.NextPacket()", err,
-					"\ndevice possibly disconnected or removed from monitor mode")
-			}
-			if err.Error() != "Timeout Expired" {
-				log.Fatalln("gopacket.PacketSource.NextPacket()", err.Error())
-			}
-		}
-		checkComms(&targAPs, &targClis, &wListCli, packet)
-		monIfa.DeauthClientsIfPast(time.Second * 5,2,  &targAPs)
-		monIfa.DoAPScanIfPast(time.Minute * 1, &wListAPs, &targAPs)
+	if OptsG.GuiMode {
+		guiMode(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
+	} else {
+		cliMode(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
 	}
 }
