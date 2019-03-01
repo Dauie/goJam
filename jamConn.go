@@ -299,15 +299,7 @@ func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 }
 
 func	(conn *JamConn)	DoAPScan(whiteList *List, aps *List) (err error) {
-
-	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
-		return errors.New("JamConn.SetIfaType() " + err.Error())
-	}
-	defer func() {
-		if err := conn.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
-			log.Fatalln("JamConn.SetIfaType()", err)
-		}
-	}()
+	
 	scanMCID, err := getDot11ScanMCID(conn.fam)
 	if err != nil {
 		return errors.New("getDot11ScanMCID() " + err.Error())
@@ -360,20 +352,25 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 		for _, v := range apList.contents {
 			ap := v.(Ap)
 			for _, cli := range ap.clients {
-				if err := conn.Deauthenticate(count, layers.Dot11ReasonDeauthStLeaving,
-					cli.hwaddr, ap.hwaddr, &cli.tap, &cli.dot); err != nil {
-					fmt.Println("JamConn.Deauthenticate() " + err.Error())
+				if err := conn.Deauthenticate(
+				count, layers.Dot11ReasonDeauthStLeaving,
+				cli.hwaddr, ap.hwaddr,
+				&cli.tap, &cli.dot); err != nil {
+					log.Panicln("JamConn.Deauthenticate() " + err.Error())
 				}
-					//Previous authentication no longer valid.
-				if err := conn.Deauthenticate(count, 0x2,
-					ap.hwaddr, cli.hwaddr, &ap.tap, &ap.dot); err != nil {
-					fmt.Println("JamConn.Deauthenticate() " + err.Error())
+				//Previous authentication no longer valid.
+				if err := conn.Deauthenticate(
+					count, 0x2,
+					ap.hwaddr, cli.hwaddr,
+					&ap.tap, &ap.dot); err != nil {
+					log.Panicln("JamConn.Deauthenticate() " + err.Error())
 				}
 			}
 		}
 		conn.lastDeauth = time.Now()
 	}
 }
+
 func	randInt(min int, max int) int {
 
 	return min + rand.Intn(max-min)

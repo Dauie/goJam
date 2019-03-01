@@ -8,23 +8,23 @@ import (
 	"strings"
 )
 
-func	getWhiteListFromFile(filename string) (List, error) {
+func getListFromFile(filename string) (List, error) {
 
-	var whiteList List
+	var list List
 
-	if filename == "none" {
-		return List{}, nil
+	if filename == "" {
+		return list, nil
 	}
 	file, err := os.Open(filename)
 	if err != nil {
-		return List{}, errors.New("os.Open(): " + os.Args[3] + " " + err.Error())
+		return List{}, errors.New("os.Open() " + os.Args[3] + " " + err.Error())
 	}
 	fscanner := bufio.NewScanner(file)
 	for fscanner.Scan() {
-		ssid := strings.TrimSpace(fscanner.Text())
-		whiteList.Add(ssid, true)
+		key := strings.TrimSpace(fscanner.Text())
+		list.Add(key, true)
 	}
-	return whiteList, nil
+	return list, nil
 }
 
 func	appendApWatchList(scanResults []Ap, aps *List, whiteList *List) List {
