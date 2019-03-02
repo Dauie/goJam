@@ -130,14 +130,15 @@ func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListC
 	WListCliGuiG = wListCli
 	TargAPGuiG = targAP
 	TargCliGuiG = clients
+
 	gui, err := initGui()
-	GuiG = gui
 	if err != nil {
 		log.Panicln(err)
 	}
 	defer gui.Close()
+	GuiG = gui
 	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, WListAPGuiG, WListCliGuiG)
-	go doEvery(time.Millisecond * 400, updateScreens)
+	go doEvery(time.Millisecond * 400, updateViews)
 	gui.SetManagerFunc(goJamGui)
 	if err := keybindings(gui); err != nil {
 		log.Panicln(err)

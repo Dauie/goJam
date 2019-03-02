@@ -11,11 +11,16 @@ import (
 	"github.com/jroimartin/gocui"
 )
 
+
 var (
+	ViewInxG = 0
+	ViewArrG = []string{ CliViewG, CliWListViewG, APViewG, APWListViewG, AssocViewG }
 	BGColorG = gocui.ColorBlack
 	FGColorG = gocui.ColorYellow
 	APViewG = "APs"
 	CliViewG = "Clients"
+	CliWListViewG = "Whitelisted Clients"
+	APWListViewG = "Whitelisted APs"
 	AssocViewG = "AP/Client Association"
 )
 
@@ -71,6 +76,18 @@ func	cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+func	nextView(g *gocui.Gui, v *gocui.View) error {
+
+	nextIndex := (ViewInxG + 1) % len(ViewArrG)
+	name := ViewArrG[nextIndex]
+
+	if _, err := g.SetCurrentView(name); err != nil {
+		return err
+	}
+	ViewInxG = nextIndex
+	return nil
+}
+
 func	keybindings(g *gocui.Gui) error {
 
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
@@ -82,10 +99,13 @@ func	keybindings(g *gocui.Gui) error {
 	if err := g.SetKeybinding("", gocui.KeyArrowDown, gocui.ModNone, cursorDown); err != nil {
 		log.Panicln(err)
 	}
+	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, nextView); err != nil {
+		log.Panicln(err)
+	}
 	return nil
 }
 
-func	printClients(view *gocui.View) {
+func	printCliView(view *gocui.View) {
 
 	var cliStr string
 	var cliArr []string
@@ -94,6 +114,26 @@ func	printClients(view *gocui.View) {
 	for _, v := range TargCliGuiG.contents {
 		cli := (v).(*Client)
 		cliArr = append(cliArr, cli.hwaddr.String())
+	}
+	sort.Strings(cliArr)
+	for _, v := range cliArr {
+		cliStr = cliStr + v + "\n"
+	}
+	_, err := view.Write([]byte(cliStr))
+	if err != nil {
+		log.Panicln(err)
+	}
+}
+
+func	printCliWListView(view *gocui.View) {
+
+	var cliStr string
+	var cliArr []string
+
+	view.Clear()
+	for _, v := range WListCliGuiG.contents {
+		cli := (v).(string)
+		cliArr = append(cliArr, cli)
 	}
 	sort.Strings(cliArr)
 	for _, v := range cliArr {
@@ -125,17 +165,42 @@ func	printAPs(view *gocui.View) {
 	}
 }
 
+func printAPWListView(view *gocui.View) {
+
+	var apStr string
+	var apArr []string
+
+	view.Clear()
+	for _, v := range WListCliGuiG.contents {
+		ap := (v).(string)
+		apArr = append(apArr, ap)
+	}
+	sort.Strings(apArr)
+	for _, v := range apArr {
+		apStr = apStr + v + "\n"
+	}
+	_, err := view.Write([]byte(apStr))
+	if err != nil {
+		log.Panicln(err)
+	}
+}
+
 func	printAssociation(view *gocui.View) {
 
-	var assocStr string
-	var assocArr []string
+	var assocStr	string
+	var assocArr	[]string
 
 	view.Clear()
 	for _, v := range TargAPGuiG.contents {
 		ap := (v).(AP)
 		apStr := fmt.Sprintf("%s - %s\n", ap.ssid, ap.hwaddr.String())
+		var cliArr []string
 		for _, v := range ap.clients {
-			apStr = apStr + v.hwaddr.String() + "\n"
+			cliArr = append(cliArr, v.hwaddr.String())
+		}
+		sort.Strings(cliArr)
+		for _, v := range cliArr {
+			apStr = apStr + v + "\n"
 		}
 		assocArr = append(assocArr, apStr)
 	}
@@ -149,13 +214,14 @@ func	printAssociation(view *gocui.View) {
 	}
 }
 
-func	clientView(g *gocui.Gui) error {
+func	cliView(g *gocui.Gui) error {
 
 	mX, mY := g.Size()
+
 	if err := checkDimensions(mX, mY); err != nil {
 		return nil
 	}
-	view, err := g.SetView(CliViewG, 0, 0, mX / 6, mY)
+	view, err := g.SetView(CliViewG, 0, 0, mX / 6, mY / 2)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -171,17 +237,42 @@ func	clientView(g *gocui.Gui) error {
 			return err
 		}
 	}
-	printClients(view)
+	printCliView(view)
+	return nil
+}
+
+func	cliWListView(g *gocui.Gui) error {
+
+	mX, mY := g.Size()
+
+	if err := checkDimensions(mX, mY); err != nil {
+		return nil
+	}
+	view, err := g.SetView(CliWListViewG, 0, mY / 2, mX / 6, mY)
+	if err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		view.Frame = true
+		view.Title = CliWListViewG
+		view.Highlight = true
+		view.BgColor = BGColorG
+		view.FgColor = FGColorG
+		view.SelBgColor = BGColorG
+		view.SelFgColor = FGColorG
+	}
+	printCliWListView(view)
 	return nil
 }
 
 func	apView(g *gocui.Gui) error {
 
 	mX, mY := g.Size()
+
 	if err := checkDimensions(mX, mY); err != nil {
 		return nil
 	}
-	view, err := g.SetView(APViewG,  (mX / 6) + 1, 0, (mX / 6) * 3, mY)
+	view, err := g.SetView(APViewG,  (mX / 6) + 1, 0, (mX / 6) * 3, mY / 2)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -193,17 +284,39 @@ func	apView(g *gocui.Gui) error {
 		view.FgColor = FGColorG
 		view.SelBgColor = BGColorG
 		view.SelFgColor = FGColorG
-		if _, err := g.SetCurrentView(APViewG); err != nil {
-			return err
-		}
 	}
 	printAPs(view)
+	return nil
+}
+
+func	apWListView(g *gocui.Gui) error {
+
+	mX, mY := g.Size()
+
+	if err := checkDimensions(mX, mY); err != nil {
+		return nil
+	}
+	view, err := g.SetView(APWListViewG, (mX / 6) + 1, mY / 2, (mX / 6) * 3, mY)
+	if err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		view.Frame = true
+		view.Title = APWListViewG
+		view.Highlight = true
+		view.BgColor = BGColorG
+		view.FgColor = FGColorG
+		view.SelBgColor = BGColorG
+		view.SelFgColor = FGColorG
+	}
+	printAPWListView(view)
 	return nil
 }
 
 func	associationView(g *gocui.Gui) error {
 
 	mX, mY := g.Size()
+
 	if err := checkDimensions(mX, mY); err != nil {
 		return nil
 	}
@@ -219,18 +332,29 @@ func	associationView(g *gocui.Gui) error {
 		view.FgColor = FGColorG
 		view.SelBgColor = BGColorG
 		view.SelFgColor = FGColorG
-		if _, err := g.SetCurrentView(APViewG); err != nil {
-			return err
-		}
 	}
 	printAssociation(view)
 	return nil
 }
 
-func	updateScreens(t time.Time) {
+func	updateViews(t time.Time) {
 
 	var wg sync.WaitGroup
 
+	// Association View
+	wg.Add(1)
+	go GuiG.Update(
+		func(g *gocui.Gui) error {
+			v, err := g.View(AssocViewG)
+			if err != nil {
+				log.Panicln("goCui.Gui.View()", err)
+			}
+			v.Clear()
+			printAssociation(v)
+			wg.Done()
+			return nil
+		})
+	// AP View
 	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
@@ -243,6 +367,20 @@ func	updateScreens(t time.Time) {
 			wg.Done()
 			return nil
 		})
+	// AP Whitelist View
+	wg.Add(1)
+	go GuiG.Update(
+		func(g *gocui.Gui) error {
+			v, err := g.View(APWListViewG)
+			if err != nil {
+				log.Panicln("goCui.Gui.View()", err)
+			}
+			v.Clear()
+			printAPWListView(v)
+			wg.Done()
+			return nil
+		})
+	// Client View
 	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
@@ -251,19 +389,20 @@ func	updateScreens(t time.Time) {
 				log.Panicln("goCui.Gui.View()", err)
 			}
 			v.Clear()
-			printClients(v)
+			printCliView(v)
 			wg.Done()
 			return nil
 	})
+	// Client Whitelist View
 	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
-			v, err := g.View(AssocViewG)
+			v, err := g.View(CliWListViewG)
 			if err != nil {
 				log.Panicln("goCui.Gui.View()", err)
 			}
 			v.Clear()
-			printAssociation(v)
+			printCliWListView(v)
 			wg.Done()
 			return nil
 		})
@@ -278,10 +417,17 @@ func	doEvery(d time.Duration, f func(time.Time)) {
 }
 
 func	goJamGui(g *gocui.Gui) error {
-	if err := clientView(g); err != nil {
+
+	if err := cliView(g); err != nil {
+		return err
+	}
+	if err := cliWListView(g); err != nil {
 		return err
 	}
 	if err := apView(g); err != nil {
+		return err
+	}
+	if err := apWListView(g); err != nil {
 		return err
 	}
 	if err := associationView(g); err != nil {
