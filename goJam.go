@@ -30,7 +30,7 @@ var (
 	WListCliGuiG *List
 	TargAPGuiG *List
 	TargCliGuiG *List
-	PktSrcG *gopacket.PacketSource
+	GuiG *gocui.Gui
 	QuitG = false
 )
 
@@ -49,7 +49,7 @@ func	handleSigInt() {
 func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packet) {
 
 	var cli		*Client
-	var ap		Ap
+	var ap AP
 	var cliAddr	net.HardwareAddr
 	var apAddr	net.HardwareAddr
 	var fromClient = false
@@ -79,7 +79,7 @@ func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packe
 	}
 	// is the ap on our target list?
 	if a, ok := targAPs.Get(apAddr.String()[:16]); ok {
-		ap = (a).(Ap)
+		ap = (a).(AP)
 	} else {
 		return
 	}
@@ -122,6 +122,7 @@ func	initEnv() {
 	handleSigInt()
 }
 
+
 func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListCli *List) {
 
 	MonIfaGuiG = monIfa
@@ -129,22 +130,24 @@ func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListC
 	WListCliGuiG = wListCli
 	TargAPGuiG = targAP
 	TargCliGuiG = clients
-	PktSrcG = gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	gui, err := initGui()
+	GuiG = gui
 	if err != nil {
-		log.Fatalln(err)
+		log.Panicln(err)
 	}
 	defer gui.Close()
+	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, WListAPGuiG, WListCliGuiG)
+	go doEvery(time.Millisecond * 400, updateScreens)
 	gui.SetManagerFunc(goJamGui)
 	if err := keybindings(gui); err != nil {
-		log.Fatalln(err)
+		log.Panicln(err)
 	}
 	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
-		log.Fatalln(err)
+		log.Panicln(err)
 	}
 }
 
-func	cliMode(monIfa *JamConn, targAPs *List, targClis *List, wListAPs *List, wListCli *List) {
+func	goJamLoop(monIfa *JamConn, targAPs *List, targClis *List, wListAPs *List, wListCli *List) {
 
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	for !QuitG {
@@ -206,6 +209,6 @@ func	main() {
 	if OptsG.GuiMode {
 		guiMode(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
 	} else {
-		cliMode(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
+		goJamLoop(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
 	}
 }

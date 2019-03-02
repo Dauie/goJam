@@ -164,7 +164,7 @@ func	(conn *JamConn)	SendScanAbort() error {
 	return nil
 }
 
-func	(conn *JamConn)	GetScanResults() ([]Ap, error) {
+func	(conn *JamConn)	GetScanResults() ([]AP, error) {
 
 	encoder := netlink.NewAttributeEncoder()
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
@@ -326,7 +326,7 @@ func	(conn *JamConn)	DoAPScan(whiteList *List, aps *List) (err error) {
 		return errors.New("genetlink.LeaveGroup() " + err.Error())
 	}
 	conn.SetLastAPScan(time.Now())
-	appendApWatchList(results, aps, whiteList)
+	appendApList(results, aps, whiteList)
 	return nil
 }
 
@@ -352,7 +352,7 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 
 	if time.Since(conn.lastDeauth) > timeout {
 		for _, v := range apList.contents {
-			ap := v.(Ap)
+			ap := v.(AP)
 			for _, cli := range ap.clients {
 				if err := conn.Deauthenticate(
 				count, layers.Dot11ReasonDeauthStLeaving,
@@ -378,7 +378,8 @@ func	randInt(min int, max int) int {
 	return min + rand.Intn(max-min)
 }
 
-func	createDot11Header(msgType layers.Dot11Type,
+func	createDot11Header(
+			msgType layers.Dot11Type,
 			src net.HardwareAddr,dst net.HardwareAddr,
 			seq uint16, duration uint16) layers.Dot11 {
 

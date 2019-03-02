@@ -18,7 +18,7 @@ type Client		struct {
 	hwaddr		net.HardwareAddr
 }
 
-type Ap			struct {
+type AP struct {
 	hwaddr		net.HardwareAddr
 	ssid		string
 	tap			layers.RadioTap
@@ -26,7 +26,7 @@ type Ap			struct {
 	clients		map[string]*Client
 }
 
-func	(s *Ap)	AddClient(client *Client) {
+func	(s *AP)	AddClient(client *Client) {
 
 	if s.clients == nil {
 		s.clients = make(map[string]*Client)
@@ -34,7 +34,7 @@ func	(s *Ap)	AddClient(client *Client) {
 	s.clients[client.hwaddr.String()] = client
 }
 
-func	(s *Ap)	DelClient(addr net.HardwareAddr) {
+func	(s *AP)	DelClient(addr net.HardwareAddr) {
 
 	if s.clients == nil {
 		return
@@ -42,7 +42,7 @@ func	(s *Ap)	DelClient(addr net.HardwareAddr) {
 	delete(s.clients, addr.String())
 }
 
-func	(s *Ap)	GetClient(addr net.HardwareAddr) (*Client, bool) {
+func	(s *AP)	GetClient(addr net.HardwareAddr) (*Client, bool) {
 
 	if s.clients != nil {
 		client, ok := s.clients[addr.String()]
@@ -53,7 +53,7 @@ func	(s *Ap)	GetClient(addr net.HardwareAddr) (*Client, bool) {
 
 //this is kinda hacks, but genetlink.AttributeDecoder is having issues with BSS_IEs
 // or maybe im just an idiot
-func	(s *Ap)	getSSIDFromBSSIE(b []byte) error {
+func	(s *AP)	getSSIDFromBSSIE(b []byte) error {
 
 	ssidLen := uint(b[1])
 	if ssidLen != 0 {
@@ -64,7 +64,7 @@ func	(s *Ap)	getSSIDFromBSSIE(b []byte) error {
 	return nil
 }
 
-func	(s *Ap)	DecodeBSS(b []byte) error {
+func	(s *AP)	DecodeBSS(b []byte) error {
 
 	ad, err := netlink.NewAttributeDecoder(b)
 	if err != nil {
@@ -85,10 +85,10 @@ func	(s *Ap)	DecodeBSS(b []byte) error {
 	return nil
 }
 
-func	decodeScanResults(msgs []genetlink.Message) ([]Ap, error) {
+func	decodeScanResults(msgs []genetlink.Message) ([]AP, error) {
 
-	var ap	Ap
-	var	aps	[]Ap
+	var ap AP
+	var	aps	[]AP
 
 	for _, v := range msgs {
 		ad, err := netlink.NewAttributeDecoder(v.Data)

@@ -33,7 +33,7 @@ func getListFromFile(filename string) (List, error) {
 	return list, nil
 }
 
-func	appendApWatchList(scanResults []Ap, aps *List, whiteList *List) List {
+func appendApList(scanResults []AP, aps *List, whiteList *List) List {
 
 	var apWatch List
 
