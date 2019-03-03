@@ -165,7 +165,7 @@ func	printAPs(view *gocui.View) {
 	}
 }
 
-func printAPWListView(view *gocui.View) {
+func	printAPWListView(view *gocui.View) {
 
 	var apStr string
 	var apArr []string
@@ -342,7 +342,7 @@ func	updateViews(t time.Time) {
 	var wg sync.WaitGroup
 
 	// Association View
-	wg.Add(1)
+	wg.Add(5)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(AssocViewG)
@@ -355,7 +355,6 @@ func	updateViews(t time.Time) {
 			return nil
 		})
 	// AP View
-	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(APViewG)
@@ -368,7 +367,6 @@ func	updateViews(t time.Time) {
 			return nil
 		})
 	// AP Whitelist View
-	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(APWListViewG)
@@ -381,7 +379,6 @@ func	updateViews(t time.Time) {
 			return nil
 		})
 	// Client View
-	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(CliViewG)
@@ -394,7 +391,6 @@ func	updateViews(t time.Time) {
 			return nil
 	})
 	// Client Whitelist View
-	wg.Add(1)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(CliWListViewG)
@@ -412,6 +408,9 @@ func	updateViews(t time.Time) {
 func	doEvery(d time.Duration, f func(time.Time)) {
 
 	for x := range time.Tick(d) {
+		if QuitG {
+			break
+		}
 		f(x)
 	}
 }

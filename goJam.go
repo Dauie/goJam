@@ -49,7 +49,7 @@ func	handleSigInt() {
 func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packet) {
 
 	var cli		*Client
-	var ap AP
+	var ap		AP
 	var cliAddr	net.HardwareAddr
 	var apAddr	net.HardwareAddr
 	var fromClient = false
@@ -137,12 +137,12 @@ func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListC
 	}
 	defer gui.Close()
 	GuiG = gui
-	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, WListAPGuiG, WListCliGuiG)
-	go doEvery(time.Millisecond * 400, updateViews)
 	gui.SetManagerFunc(goJamGui)
 	if err := keybindings(gui); err != nil {
 		log.Panicln(err)
 	}
+	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, WListAPGuiG, WListCliGuiG)
+	go doEvery(time.Millisecond * 400, updateViews)
 	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
 	}
@@ -155,11 +155,12 @@ func	goJamLoop(monIfa *JamConn, targAPs *List, targClis *List, wListAPs *List, w
 		packet, err := packSrc.NextPacket()
 		if err != nil {
 			if err.Error() == "Read Error" {
-				log.Fatalln("gopacket.PacketSource.NextPacket()", err,
+				log.Panicln("gopacket.PacketSource.NextPacket()", err,
 					"\ndevice possibly disconnected or removed from monitor mode")
-			}
-			if err.Error() != "Timeout Expired" {
-				log.Fatalln("gopacket.PacketSource.NextPacket()", err.Error())
+			} else if err.Error() != "Timeout Expired" {
+				log.Panicln("gopacket.PacketSource.NextPacket()", err.Error())
+			} else {
+				QuitG = true
 			}
 		}
 		checkComms(targAPs, targClis, wListCli, packet)
