@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/jroimartin/gocui"
 )
-
 
 var (
 	ViewInxG = 0
@@ -88,6 +88,19 @@ func	nextView(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+func getLineFromCursor(v *gocui.View) string {
+
+	var l string
+	var err error
+
+	_, cy := v.Cursor()
+	if l, err = v.Line(cy); err != nil {
+		l = ""
+	}
+	return strings.TrimSpace(l)
+}
+
+
 func	keybindings(g *gocui.Gui) error {
 
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
@@ -101,6 +114,53 @@ func	keybindings(g *gocui.Gui) error {
 	}
 	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, nextView); err != nil {
 		log.Panicln(err)
+	}
+	if err := g.SetKeybinding("", gocui.KeySpace, gocui.ModNone, addOrRemoveEntity); err != nil {
+		log.Panicln(err)
+	}
+	return nil
+}
+
+func	addOrRemoveEntity(g *gocui.Gui, v *gocui.View) error {
+
+	var mac string
+	var isAP = false
+	var onWhiteList = false
+
+	line := getLineFromCursor(v)
+	if ok := strings.Contains(line, "-"); ok {
+		mac = (strings.Split(line, "-"))[1]
+		mac = strings.TrimSpace(mac)
+	} else {
+		mac = strings.TrimSpace(line)
+	}
+	if _, ok := APWListGuiG.Get(mac); ok {
+		isAP = true
+		onWhiteList = true
+	} else if _, ok := CliWListGuiG.Get(mac); ok {
+		onWhiteList = true
+	} else if _, ok := TargAPGuiG.Get(mac[:16]); ok {
+		isAP = true
+	}
+	if len(mac) < 16 {
+		return nil
+	}
+	if isAP {
+		if onWhiteList {
+			APWListGuiG.Del(mac)
+			//TODO remove from BPF filter once we're filtering whitelist
+		} else {
+			TargAPGuiG.Del(mac[:16])
+			APWListGuiG.Add(mac, mac)
+		}
+	} else {
+		if onWhiteList {
+			CliWListGuiG.Del(mac)
+			//TODO remove from BPF filter once we're filtering whitelist
+		} else {
+			CliWListGuiG.Add(mac, mac)
+			TargCliGuiG.Del(mac)
+		}
 	}
 	return nil
 }
@@ -131,7 +191,7 @@ func	printCliWListView(view *gocui.View) {
 	var cliArr []string
 
 	view.Clear()
-	for _, v := range WListCliGuiG.contents {
+	for _, v := range CliWListGuiG.contents {
 		cli := (v).(string)
 		cliArr = append(cliArr, cli)
 	}
@@ -171,7 +231,7 @@ func	printAPWListView(view *gocui.View) {
 	var apArr []string
 
 	view.Clear()
-	for _, v := range WListCliGuiG.contents {
+	for _, v := range APWListGuiG.contents {
 		ap := (v).(string)
 		apArr = append(apArr, ap)
 	}

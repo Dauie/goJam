@@ -24,14 +24,14 @@ type Opts struct {
 }
 
 var (
-	OptsG Opts
-	MonIfaGuiG *JamConn
-	WListAPGuiG *List
-	WListCliGuiG *List
-	TargAPGuiG *List
-	TargCliGuiG *List
-	GuiG *gocui.Gui
-	QuitG = false
+	OptsG        Opts
+	MonIfaGuiG   *JamConn
+	APWListGuiG  *List
+	CliWListGuiG *List
+	TargAPGuiG   *List
+	TargCliGuiG  *List
+	GuiG         *gocui.Gui
+	QuitG                 = false
 )
 
 func	handleSigInt() {
@@ -126,8 +126,8 @@ func	initEnv() {
 func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListCli *List) {
 
 	MonIfaGuiG = monIfa
-	WListAPGuiG = wListAP
-	WListCliGuiG = wListCli
+	APWListGuiG = wListAP
+	CliWListGuiG = wListCli
 	TargAPGuiG = targAP
 	TargCliGuiG = clients
 
@@ -141,7 +141,7 @@ func	guiMode(monIfa *JamConn, targAP *List, clients *List, wListAP *List, wListC
 	if err := keybindings(gui); err != nil {
 		log.Panicln(err)
 	}
-	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, WListAPGuiG, WListCliGuiG)
+	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, APWListGuiG, CliWListGuiG)
 	go doEvery(time.Millisecond * 400, updateViews)
 	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
