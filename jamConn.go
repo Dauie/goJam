@@ -300,7 +300,7 @@ func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 	return nil
 }
 
-func	(conn *JamConn)	DoAPScan(whiteList *List, aps *List) (err error) {
+func	(conn *JamConn)	DoAPScan(APWList *List, APTargList *List) (err error) {
 	
 	scanMCID, err := getDot11ScanMCID(conn.fam)
 	if err != nil {
@@ -326,7 +326,7 @@ func	(conn *JamConn)	DoAPScan(whiteList *List, aps *List) (err error) {
 		return errors.New("genetlink.LeaveGroup() " + err.Error())
 	}
 	conn.SetLastAPScan(time.Now())
-	appendApList(results, aps, whiteList)
+	appendApList(results, APTargList, APWList)
 	return nil
 }
 
@@ -339,10 +339,10 @@ func	(conn *JamConn)	ChangeChanIfPast(timeout time.Duration) {
 	}
 }
 
-func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, whiteList *List, aps *List) {
+func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, APWList *List, APTargList *List) {
 
 	if time.Since(conn.lastAPScan) > timeout {
-		if err := conn.DoAPScan(whiteList, aps); err != nil {
+		if err := conn.DoAPScan(APWList, APTargList); err != nil {
 			log.Fatalln("JamConn.DoAPScan() " + err.Error())
 		}
 	}
@@ -437,7 +437,6 @@ func	(conn *JamConn)	Deauthenticate(
 		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 			return errors.New("Handle.WritePacketData() " + err.Error())
 		}
-		count--
 	}
 	return nil
 }

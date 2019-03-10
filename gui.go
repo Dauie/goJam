@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -115,53 +116,96 @@ func	keybindings(g *gocui.Gui) error {
 	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, nextView); err != nil {
 		log.Panicln(err)
 	}
-	if err := g.SetKeybinding("", gocui.KeySpace, gocui.ModNone, addOrRemoveEntity); err != nil {
+	if err := g.SetKeybinding(CliViewG, gocui.KeySpace, gocui.ModNone, addToCliWList); err != nil {
+		log.Panicln(err)
+	}
+	if err := g.SetKeybinding(APViewG, gocui.KeySpace, gocui.ModNone, addToAPWList); err != nil {
+		log.Panicln(err)
+	}
+	if err := g.SetKeybinding(APWListViewG, gocui.KeySpace, gocui.ModNone, removeFromAPWList); err != nil {
+		log.Panicln(err)
+	}
+	if err := g.SetKeybinding(CliWListViewG, gocui.KeySpace, gocui.ModNone, removeFromCliWList); err != nil {
 		log.Panicln(err)
 	}
 	return nil
 }
 
-func	addOrRemoveEntity(g *gocui.Gui, v *gocui.View) error {
+func	getSSIDMACPair(line string) (string, net.HardwareAddr, error) {
 
-	var mac string
-	var isAP = false
-	var onWhiteList = false
+	if ok := strings.Contains(line, "-"); ok {
+		strs := strings.Split(line, "-")
+		ssid := strings.TrimSpace(string(strs[0]))
+		mac, err := net.ParseMAC(strings.TrimSpace(string(strs[1])))
+		if err != nil {
+			return "", nil, errors.New("net.ParseMAC() " + err.Error())
+		}
+		return ssid, mac, nil
+	} else {
+		mac, err := net.ParseMAC(strings.TrimSpace(line))
+		if err != nil {
+			return "", nil, errors.New("net.ParseMAC() " + err.Error())
+		}
+		return "", mac, nil
+	}
+}
+
+func	removeFromCliWList(g *gocui.Gui, v *gocui.View) error{
 
 	line := getLineFromCursor(v)
-	if ok := strings.Contains(line, "-"); ok {
-		mac = (strings.Split(line, "-"))[1]
-		mac = strings.TrimSpace(mac)
-	} else {
-		mac = strings.TrimSpace(line)
-	}
-	if _, ok := APWListGuiG.Get(mac); ok {
-		isAP = true
-		onWhiteList = true
-	} else if _, ok := CliWListGuiG.Get(mac); ok {
-		onWhiteList = true
-	} else if _, ok := TargAPGuiG.Get(mac[:16]); ok {
-		isAP = true
-	}
-	if len(mac) < 16 {
+
+	if len(line) < 17 {
 		return nil
 	}
-	if isAP {
-		if onWhiteList {
-			APWListGuiG.Del(mac)
-			//TODO remove from BPF filter once we're filtering whitelist
-		} else {
-			TargAPGuiG.Del(mac[:16])
-			APWListGuiG.Add(mac, mac)
+	CliWListGuiG.Del(line)
+	return nil
+}
+
+func	removeFromAPWList(g *gocui.Gui, v *gocui.View) error {
+
+	line := getLineFromCursor(v)
+
+	_, mac, err := getSSIDMACPair(line)
+	if err != nil {
+		return errors.New("getSSIDMACPair() " + err.Error())
+	}
+	APWListGuiG.Del(mac.String()[:16])
+	return nil
+}
+
+func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
+
+	line := getLineFromCursor(v)
+
+	if len(line) < 17 {
+		return nil
+	}
+	CliWListGuiG.Add(line, line)
+	TargCliGuiG.Del(line)
+	for _, v := range TargAPGuiG.contents {
+		ap := (v).(AP)
+		hwaddr, err := net.ParseMAC(line)
+		if err != nil {
+			return errors.New("net.ParseMAC() " + err.Error())
 		}
-	} else {
-		if onWhiteList {
-			CliWListGuiG.Del(mac)
-			//TODO remove from BPF filter once we're filtering whitelist
-		} else {
-			CliWListGuiG.Add(mac, mac)
-			TargCliGuiG.Del(mac)
+		if _, ok := ap.GetClient(hwaddr); ok {
+			ap.DelClient(hwaddr)
+			TargAPGuiG.Add(ap.hwaddr.String()[:16], ap)
+			break
 		}
 	}
+	return nil
+}
+
+func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
+
+	line := getLineFromCursor(v)
+	_, mac, err := getSSIDMACPair(line)
+	if err != nil {
+		return errors.New("getSSIDMACPair() " + err.Error())
+	}
+	APWListGuiG.Add(mac.String()[:16], line)
+	TargAPGuiG.Del(mac.String()[:16])
 	return nil
 }
 
@@ -401,7 +445,7 @@ func	updateViews(t time.Time) {
 
 	var wg sync.WaitGroup
 
-	// Association View
+	// 1. Association View
 	wg.Add(5)
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
@@ -414,7 +458,7 @@ func	updateViews(t time.Time) {
 			wg.Done()
 			return nil
 		})
-	// AP View
+	// 2. AP View
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(APViewG)
@@ -426,7 +470,7 @@ func	updateViews(t time.Time) {
 			wg.Done()
 			return nil
 		})
-	// AP Whitelist View
+	// 3. AP Whitelist View
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(APWListViewG)
@@ -438,7 +482,7 @@ func	updateViews(t time.Time) {
 			wg.Done()
 			return nil
 		})
-	// Client View
+	// 4. Client View
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(CliViewG)
@@ -450,7 +494,7 @@ func	updateViews(t time.Time) {
 			wg.Done()
 			return nil
 	})
-	// Client Whitelist View
+	// 5. Client Whitelist View
 	go GuiG.Update(
 		func(g *gocui.Gui) error {
 			v, err := g.View(CliWListViewG)
