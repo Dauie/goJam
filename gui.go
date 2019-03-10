@@ -133,6 +133,11 @@ func	keybindings(g *gocui.Gui) error {
 
 func	getSSIDMACPair(line string) (string, net.HardwareAddr, error) {
 
+	line = strings.TrimSpace(line)
+
+	if len(line) < MacStrLen {
+		return "", net.HardwareAddr{}, errors.New("string too short")
+	}
 	if ok := strings.Contains(line, "-"); ok {
 		strs := strings.Split(line, "-")
 		ssid := strings.TrimSpace(string(strs[0]))
@@ -154,7 +159,7 @@ func	removeFromCliWList(g *gocui.Gui, v *gocui.View) error{
 
 	line := getLineFromCursor(v)
 
-	if len(line) < 17 {
+	if len(line) < MacStrLen {
 		return nil
 	}
 	CliWListGuiG.Del(line)
@@ -167,6 +172,9 @@ func	removeFromAPWList(g *gocui.Gui, v *gocui.View) error {
 
 	_, mac, err := getSSIDMACPair(line)
 	if err != nil {
+		if err.Error() == "string too short" {
+			return nil
+		}
 		return errors.New("getSSIDMACPair() " + err.Error())
 	}
 	APWListGuiG.Del(mac.String()[:16])
@@ -177,7 +185,7 @@ func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
 
-	if len(line) < 17 {
+	if len(line) < MacStrLen {
 		return nil
 	}
 	CliWListGuiG.Add(line, line)
@@ -202,6 +210,9 @@ func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 	line := getLineFromCursor(v)
 	_, mac, err := getSSIDMACPair(line)
 	if err != nil {
+		if err.Error() == "string too short" {
+			return nil
+		}
 		return errors.New("getSSIDMACPair() " + err.Error())
 	}
 	APWListGuiG.Add(mac.String()[:16], line)

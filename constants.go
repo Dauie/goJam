@@ -4,6 +4,7 @@ const (
 	BroadcastAddr = "ff:ff:ff:ff:ff:ff"
 	NoSSID = "NO_SSID"
 	EthAlen = 6
+	MacStrLen = 17
 	DefPcapBufLen = 2 * 1024 * 1024
 	MinEthFrameLen = 64
 )

