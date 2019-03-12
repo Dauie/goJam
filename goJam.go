@@ -23,13 +23,14 @@ import (
 
 
 type Opts struct {
-	MonitorInterface	string `short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
-	ClientWhiteList		string `short:"c" long:"cWhitelist" description:"file with new line separated list of MACs to be spared"`
-	APWhiteList			string `short:"a" long:"aWhitelist" description:"file with new line separated list of SSIDs to be spared"`
-	GuiMode				bool   `short:"g" long:"gui" description:"enable gui mode for manual control"`
-	APScanInterval		uint32 `short:"s" long:"scanInterval" default:"60" description:"the interval between ap scans in seconds"`
-	AttackInterval		uint32 `short:"t" long:"attackInterval" default:"5" description:"the interval between attacks in seconds"`
-	AttackCount			uint16 `short:"n" long:"attackCnt" default:"2" description:"the amount of packets to be sent during each attack interval"`
+	MonitorInterface	string	`short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
+	ClientWhiteList		string	`short:"c" long:"cWhitelist" description:"file with new line separated list of MACs to be spared"`
+	APWhiteList			string	`short:"a" long:"aWhitelist" description:"file with new line separated list of SSIDs to be spared"`
+	GuiMode				bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
+	APScanInterval		uint32	`short:"s" long:"scanInterval" default:"60" description:"the interval between ap scans in seconds"`
+	AttackInterval		uint32	`short:"t" long:"attackInterval" default:"5" description:"the interval between attacks in seconds"`
+	AttackCount			uint16	`short:"n" long:"attackCnt" default:"2" description:"the amount of packets to be sent during each attack interval"`
+	FiveGhzSupport		bool	`default:"true"`
 }
 
 type Stats struct {

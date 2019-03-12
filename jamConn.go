@@ -108,6 +108,9 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	if !ok {
 		return errors.New("channel not found " + freq.String())
 	}
+	if !OptsG.FiveGhzSupport && chann.CenterFreq > 5000 {
+		return nil
+	}
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, chann.CenterFreq)
@@ -127,8 +130,11 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
-		if err.Error() == "invalid argument" && !OptsG.GuiMode {
-			fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
+		if err.Error() == "invalid argument" {
+			OptsG.FiveGhzSupport = false
+			if !OptsG.GuiMode {
+				fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
+			}
 			return nil
 		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
@@ -309,8 +315,16 @@ func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 	return nil
 }
 
-func	(conn *JamConn)	DoAPScan(APWList *List, APTargList *List) (err error) {
-	
+func (conn *JamConn) DoAPScan(APWList *List, APTargList *List) (err error) {
+
+	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
+		return errors.New("JamConn.SetIfaType() " + err.Error())
+	}
+	defer func() {
+		if err := conn.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
+			log.Fatalln("JamConn.SetIfaType()", err)
+		}
+	}()
 	scanMCID, err := getDot11ScanMCID(conn.fam)
 	if err != nil {
 		return errors.New("getDot11ScanMCID() " + err.Error())
@@ -387,7 +401,7 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 				}
 			}
 		}
-		conn.lastDeauth = time.Now()
+		conn.SetLastDeauth(time.Now())
 	}
 }
 
@@ -498,7 +512,6 @@ func	(conn *JamConn)	Disassociate(
 func	(conn* JamConn)	TriggerScan() (bool, error) {
 
 	encoder := netlink.NewAttributeEncoder()
-
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	// wildcard scan
 	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
@@ -522,9 +535,6 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 	for !done {
 		msgs, _, err := conn.nlconn.Receive()
 		if err != nil {
-			if err.Error() == "device or resource busy" {
-				return false, errors.New("scan failed")
-			}
 			return false, errors.New("genetlink.Conn.Recieve() " + err.Error())
 		}
 		for _, m := range msgs {
