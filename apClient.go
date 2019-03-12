@@ -16,6 +16,8 @@ type Client		struct {
 	tap			layers.RadioTap
 	dot			layers.Dot11
 	hwaddr		net.HardwareAddr
+	nDeauth		uint32
+	nDisassc	uint32
 }
 
 type AP struct {

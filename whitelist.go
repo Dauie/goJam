@@ -42,13 +42,13 @@ func appendApList(scanResults []AP, aps *List, whiteList *List) List {
 	}
 	for _, v := range scanResults {
 		if _, ok := whiteList.Get(v.ssid); !ok {
-			if _, ok := aps.Get(v.hwaddr.String()[0:16]); !ok {
+			if _, ok := aps.Get(v.hwaddr.String()[:16]); !ok {
 				if !OptsG.GuiMode {
 					fmt.Printf("%s - %s\n", v.ssid,v.hwaddr.String())
 				}
 				//TODO find a way to limit this by antenna count
 				//leave off the last character to catch devices with multiple anten.
-				aps.Add(v.hwaddr.String()[0:16], v)
+				aps.Add(v.hwaddr.String()[:16], v)
 			}
 		}
 	}

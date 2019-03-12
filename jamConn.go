@@ -44,7 +44,11 @@ func	(conn *JamConn)	SetLastChanSwitch(lastChanSwitch time.Time) {
 
 func	_NewJamConn(nlconn *genetlink.Conn, ifa *net.Interface, fam *genetlink.Family) *JamConn {
 
-	return &JamConn{nlconn: nlconn, ifa: ifa, fam: fam}
+	conn := new(JamConn)
+	conn.nlconn = nlconn
+	conn.ifa = ifa
+	conn.fam = fam
+	return conn
 }
 
 func	NewJamConn(ifaName string) (*JamConn, error) {
@@ -136,6 +140,7 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 func	(conn *JamConn)	SendScanAbort() error {
 
 	encoder := netlink.NewAttributeEncoder()
+
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	attribs, err := encoder.Encode()
 	if err != nil {
@@ -167,6 +172,7 @@ func	(conn *JamConn)	SendScanAbort() error {
 func	(conn *JamConn)	GetScanResults() ([]AP, error) {
 
 	encoder := netlink.NewAttributeEncoder()
+
 	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsDump
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	attribs, err := encoder.Encode()
@@ -231,6 +237,7 @@ func	(conn *JamConn)	SetupPcapHandle() error {
 func	(conn *JamConn)	MakeMonIfa() error {
 
 	encoder := netlink.NewAttributeEncoder()
+
 	encoder.Uint32(nl80211.ATTR_IFTYPE, nl80211.IFTYPE_MONITOR)
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	encoder.String(nl80211.ATTR_IFNAME, "mon42")
@@ -256,6 +263,7 @@ func	(conn *JamConn)	MakeMonIfa() error {
 func	(conn *JamConn)	DelMonIfa() error {
 
 	encoder := netlink.NewAttributeEncoder()
+
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	attribs, err := encoder.Encode()
 	if err != nil {
@@ -279,6 +287,7 @@ func	(conn *JamConn)	DelMonIfa() error {
 func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 
 	encoder := netlink.NewAttributeEncoder()
+
 	encoder.Uint32(nl80211.ATTR_IFTYPE, ifaType)
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	attribs, err := encoder.Encode()
@@ -358,14 +367,23 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 				count, layers.Dot11ReasonDeauthStLeaving,
 				cli.hwaddr, ap.hwaddr,
 				cli.tap, cli.dot); err != nil {
-					log.Panicln("JamConn.Deauthenticate() " + err.Error())
-				}
+					if err.Error() == "Bad file descriptor" {
+						QuitG = true
+						return
+					} else {
+						log.Panicln("JamConn.Deauthenticate() " + err.Error())
+					}				}
 				//Previous authentication no longer valid.
 				if err := conn.Deauthenticate(
 					count, 0x2,
 					ap.hwaddr, cli.hwaddr,
 					ap.tap, ap.dot); err != nil {
-					log.Panicln("JamConn.Deauthenticate() " + err.Error())
+						if err.Error() == "Bad file descriptor" {
+							QuitG = true
+							return
+						} else {
+							log.Panicln("JamConn.Deauthenticate() " + err.Error())
+						}
 				}
 			}
 		}
@@ -420,13 +438,13 @@ func	(conn *JamConn)	Deauthenticate(
 	if !OptsG.GuiMode {
 		fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
 	}
-	buff = gopacket.NewSerializeBuffer()
 	dot11 := createDot11Header(layers.Dot11TypeMgmtDeauthentication, src, dst,
 		dot11Orig.DurationID, dot11Orig.SequenceNumber + i)
 	mgmt := layers.Dot11MgmtDeauthentication {
 		Reason: reason,
 	}
 	for i = 0; i < count; i++ {
+		buff = gopacket.NewSerializeBuffer()
 		if err := gopacket.SerializeLayers(buff, opts,
 			&tap,
 			&dot11,
@@ -480,6 +498,7 @@ func	(conn *JamConn)	Disassociate(
 func	(conn* JamConn)	TriggerScan() (bool, error) {
 
 	encoder := netlink.NewAttributeEncoder()
+
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	// wildcard scan
 	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
@@ -504,7 +523,7 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 		msgs, _, err := conn.nlconn.Receive()
 		if err != nil {
 			if err.Error() == "device or resource busy" {
-				continue
+				return false, errors.New("scan failed")
 			}
 			return false, errors.New("genetlink.Conn.Recieve() " + err.Error())
 		}

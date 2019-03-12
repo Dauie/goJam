@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/jroimartin/gocui"
 	"log"
 	"math/rand"
 	"net"
@@ -14,29 +13,47 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/jessevdk/go-flags"
+	"github.com/jroimartin/gocui"
 )
 
+/*TODO*/
+// 4. debug shutdown concurrency issues
+// 5. add "stats" view to the top of gui and "stats" printout at program's end
+
+
+
 type Opts struct {
-	MonitorInterface string `short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
-	ClientWhiteList  string `short:"c" long:"cwlist" description:"file with new line separated list of MACs to be spared"`
-	APWhiteList      string `short:"a" long:"awlist" description:"file with new line separated list of SSIDs to be spared"`
-	GuiMode          bool   `short:"g" long:"gui" description:"enable gui mode for manual control"`
+	MonitorInterface	string `short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
+	ClientWhiteList		string `short:"c" long:"cWhitelist" description:"file with new line separated list of MACs to be spared"`
+	APWhiteList			string `short:"a" long:"aWhitelist" description:"file with new line separated list of SSIDs to be spared"`
+	GuiMode				bool   `short:"g" long:"gui" description:"enable gui mode for manual control"`
+	APScanInterval		uint32 `short:"s" long:"scanInterval" default:"60" description:"the interval between ap scans in seconds"`
+	AttackInterval		uint32 `short:"t" long:"attackInterval" default:"5" description:"the interval between attacks in seconds"`
+	AttackCount			uint16 `short:"n" long:"attackCnt" default:"2" description:"the amount of packets to be sent during each attack interval"`
+}
+
+type Stats struct {
+	sentPackts		uint64
+	sentBytes		uint64
+	sessionStart	time.Duration
+	sessionEnd		time.Duration
 }
 
 var (
-	OptsG        Opts
-	MonIfaGuiG   *JamConn
-	APWListGuiG  *List
-	CliWListGuiG *List
-	TargAPGuiG   *List
-	TargCliGuiG  *List
-	GuiG         *gocui.Gui
-	QuitG                 = false
+	OptsG			Opts
+	MonIfaGuiG		*JamConn
+	APWListGuiG		*List
+	CliWListGuiG	*List
+	TargAPGuiG		*List
+	TargCliGuiG		*List
+	GuiG			*gocui.Gui
+	QuitG			= false
 )
 
 func	handleSigInt() {
 
 	sigc := make(chan os.Signal, 1)
+
 	go func () {
 		s := <-sigc
 		if s == syscall.SIGINT {
@@ -99,12 +116,13 @@ func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packe
 	}
 	targCli.Add(cli.hwaddr.String(), cli)
 	ap.AddClient(cli)
-	targAPs.Add(ap.hwaddr.String()[0:16], ap)
+	targAPs.Add(ap.hwaddr.String()[:16], ap)
 }
 
 func	getWhiteLists(opts *Opts) (client List, ap List) {
 
 	apWList, err := getListFromFile(opts.APWhiteList)
+
 	if err != nil {
 		log.Fatalln("getListFromFile()", err)
 	}
@@ -114,14 +132,6 @@ func	getWhiteLists(opts *Opts) (client List, ap List) {
 	}
 	return cliWList, apWList
 }
-
-func	initEnv() {
-	//set rand seed
-	rand.Seed(time.Now().UTC().UnixNano())
-	//catch sigint
-	handleSigInt()
-}
-
 
 func	guiMode(monIfa *JamConn, APs *List, clients *List, APWList *List, CliWList *List) {
 
@@ -151,22 +161,36 @@ func	guiMode(monIfa *JamConn, APs *List, clients *List, APWList *List, CliWList 
 func	goJamLoop(monIfa *JamConn, targAPs *List, targClis *List, APWList *List, CliWList *List) {
 
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
+
 	for !QuitG {
 		packet, err := packSrc.NextPacket()
 		if err != nil {
-			if err.Error() == "Read Error" {
+			switch err.Error() {
+			case "Read Error":
 				log.Panicln("gopacket.PacketSource.NextPacket()", err,
 					"\ndevice possibly disconnected or removed from monitor mode")
-			} else if err.Error() == "Timeout Expired" {
+				break
+			case "Timeout Expired":
 				continue
-			} else {
+			case "EOF":
 				QuitG = true
+			default:
+				log.Panicln("packSrc.NextPacket()", err)
+				break
 			}
 		}
 		checkComms(targAPs, targClis, CliWList, packet)
-		monIfa.DeauthClientsIfPast(time.Second * 5,2, targAPs)
-		monIfa.DoAPScanIfPast(time.Minute * 1, APWList, targAPs)
+		monIfa.DeauthClientsIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, targAPs)
+		monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), APWList, targAPs)
 	}
+}
+
+func	initEnv() {
+
+	//set rand seed
+	rand.Seed(time.Now().UTC().UnixNano())
+	//catch sigint
+	handleSigInt()
 }
 
 func	main() {

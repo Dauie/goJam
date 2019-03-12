@@ -26,6 +26,7 @@ func	getInterface(targetIface string) (net.Interface, error) {
 func	getDot11ScanMCID(fam *genetlink.Family) (uint32, error) {
 
 	scanMCID := uint32(0)
+
 	for _, v := range fam.Groups {
 		if v.Name == "scan" {
 			scanMCID = v.ID

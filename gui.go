@@ -199,7 +199,6 @@ func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 		if _, ok := ap.GetClient(hwaddr); ok {
 			ap.DelClient(hwaddr)
 			TargAPGuiG.Add(ap.hwaddr.String()[:16], ap)
-			break
 		}
 	}
 	return nil
@@ -208,6 +207,7 @@ func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
+
 	_, mac, err := getSSIDMACPair(line)
 	if err != nil {
 		if err.Error() == "string too short" {

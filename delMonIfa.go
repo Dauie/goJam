@@ -24,4 +24,5 @@ func	main() {
 	if err := monIfa.DelMonIfa(); err != nil {
 		log.Fatalln("JamConn.DelMonIfa()", err.Error())
 	}
+	fmt.Println("cool man... cool.")
 }
