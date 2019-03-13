@@ -46,10 +46,13 @@ var (
 	OptsG			Opts
 	MonIfaG			*JamConn
 	APWListG		*List
+	APWListMutexG	sync.Mutex
 	CliWListG		*List
+	CliWListMutexG	sync.Mutex
 	APListG			*List
 	ApListMutexG	sync.Mutex
 	CliListG		*List
+	CliListMutexG	sync.Mutex
 	GuiG			*gocui.Gui
 	QuitG			= false
 )
@@ -118,7 +121,9 @@ func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet
 		ap.dot = *dot
 		ap.tap = *tap
 	}
+	CliListMutexG.Lock()
 	CliList.Add(cli.hwaddr.String(), cli)
+	CliListMutexG.Unlock()
 	ap.AddClient(cli)
 	ApListMutexG.Lock()
 	APList.Add(ap.hwaddr.String()[:16], ap)
@@ -208,7 +213,7 @@ func	main() {
 	if _, err := flags.ParseArgs(&OptsG, os.Args); err != nil {
 		os.Exit(1)
 	}
-	wListCli, wListAPs := getWhiteLists(&OptsG)
+	cliWList, apWList := getWhiteLists(&OptsG)
 	monIfa, err := NewJamConn(OptsG.MonitorInterface)
 	if err != nil {
 		log.Fatalln("NewJamConn()", err)
@@ -218,7 +223,7 @@ func	main() {
 			log.Fatalln("genetlink.Conn.Close()", err)
 		}
 	}()
-	if err := monIfa.DoAPScan(&wListAPs, &apList); err != nil {
+	if err := monIfa.DoAPScan(&apWList, &apList); err != nil {
 		log.Fatalln("JamConn.DoAPScan()", err)
 	}
 	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
@@ -239,8 +244,8 @@ func	main() {
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
 	if OptsG.GuiMode {
-		guiMode(monIfa, &apList, &cliList, &wListAPs, &wListCli)
+		guiMode(monIfa, &apList, &cliList, &apWList, &cliWList )
 	} else {
-		goJamLoop(monIfa, &apList, &cliList, &wListAPs, &wListCli)
+		goJamLoop(monIfa, &apList, &cliList, &apWList, &cliWList)
 	}
 }

@@ -392,7 +392,7 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 					}
 					StatsG.sentBytes += uint64(bSent)
 					StatsG.sentPackts += 1
-					cli.nDeauth += uint32(count)
+					cli.nDeauth += uint32(1)
 					ApListMutexG.Lock()
 					apList.Add(ap.hwaddr.String()[:16], ap)
 					ApListMutexG.Unlock()
@@ -412,6 +412,7 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 					StatsG.sentBytes += uint64(bSent)
 					StatsG.sentPackts += 1
 					cli.nDeauth += uint32(1)
+					fmt.Println("plus")
 					ApListMutexG.Lock()
 					apList.Add(ap.hwaddr.String()[:16], ap)
 					ApListMutexG.Unlock()

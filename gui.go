@@ -162,7 +162,9 @@ func	removeFromCliWList(g *gocui.Gui, v *gocui.View) error{
 	if len(line) < MacStrLen {
 		return nil
 	}
+	CliWListMutexG.Lock()
 	CliWListG.Del(line)
+	CliWListMutexG.Unlock()
 	return nil
 }
 
@@ -177,14 +179,17 @@ func	removeFromAPWList(g *gocui.Gui, v *gocui.View) error {
 		}
 		return errors.New("getSSIDMACPair() " + err.Error())
 	}
+	APWListMutexG.Lock()
 	APWListG.Del(mac.String()[:16])
+	APWListMutexG.Unlock()
 	return nil
 }
 
 func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
-
+	line = strings.Split(line, "-")[0]
+	line = strings.TrimSpace(line)
 	if len(line) < MacStrLen {
 		return nil
 	}
@@ -217,7 +222,9 @@ func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 		}
 		return errors.New("getSSIDMACPair() " + err.Error())
 	}
+	APWListMutexG.Lock()
 	APWListG.Add(mac.String()[:16], line)
+	APWListMutexG.Unlock()
 	ApListMutexG.Lock()
 	APListG.Del(mac.String()[:16])
 	ApListMutexG.Unlock()
@@ -230,11 +237,13 @@ func	printCliView(view *gocui.View) {
 	var cliArr []string
 
 	view.Clear()
+	CliListMutexG.Lock()
 	for _, v := range CliListG.contents {
 		cli := (v).(*Client)
 		c := fmt.Sprintf("%s - %d\n", cli.hwaddr.String(), cli.nDeauth)
 		cliArr = append(cliArr, c)
 	}
+	CliListMutexG.Unlock()
 	sort.Strings(cliArr)
 	for _, v := range cliArr {
 		cliStr = cliStr + v
@@ -247,14 +256,16 @@ func	printCliView(view *gocui.View) {
 
 func	printCliWListView(view *gocui.View) {
 
-	var cliStr string
-	var cliArr []string
+	var cliStr	string
+	var cliArr		[]string
 
 	view.Clear()
+	CliWListMutexG.Lock()
 	for _, v := range CliWListG.contents {
 		cli := (v).(string)
 		cliArr = append(cliArr, cli)
 	}
+	CliWListMutexG.Unlock()
 	sort.Strings(cliArr)
 	for _, v := range cliArr {
 		cliStr = cliStr + v + "\n"
@@ -293,10 +304,12 @@ func	printAPWListView(view *gocui.View) {
 	var apArr []string
 
 	view.Clear()
+	APWListMutexG.Lock()
 	for _, v := range APWListG.contents {
 		ap := (v).(string)
 		apArr = append(apArr, ap)
 	}
+	APWListMutexG.Unlock()
 	sort.Strings(apArr)
 	for _, v := range apArr {
 		apStr = apStr + v + "\n"

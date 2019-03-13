@@ -101,7 +101,6 @@ func	decodeScanResults(msgs []genetlink.Message) ([]AP, error) {
 		if err != nil {
 			return nil, errors.New("netlink.NewAttributeeDecoder() " + err.Error())
 		}
-
 		for ad.Next() {
 			switch ad.Type() {
 			case nl80211.ATTR_BSS:
