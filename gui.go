@@ -40,7 +40,8 @@ func	initGui() (*gocui.Gui, error) {
 		return nil, err
 	}
 	g.Cursor = true
-	g.Mouse = true
+	g.Highlight = true
+	//g.Mouse = true
 	return g, nil
 }
 

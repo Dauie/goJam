@@ -71,36 +71,13 @@ func	NewJamConn(ifaName string) (*JamConn, error) {
 
 func	(conn *JamConn)	SetDeviceChannel(c int) error {
 
-	if c < 1 || c > len(ChanArrG) {
+	if c < 0 || c > len(ChanArrG) - 1 {
 		return errors.New("invalid channel")
 	}
-	chann := ChanArrG[c - 1]
-	encoder := netlink.NewAttributeEncoder()
-	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
-	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, chann.CenterFreq)
-	encoder.Uint32(ATTR_CHANNEL_WIDTH, chann.ChanWidth)
-	encoder.Uint32(ATTR_CENTER_FREQ, chann.CenterFreq)
-	attribs, err := encoder.Encode()
-	if err != nil {
-		return errors.New("genetlink.Encoder.Encode() " + err.Error())
+	chann := layers.RadioTapChannelFrequency(ChanArrG[c].CenterFreq)
+	if err := conn.SetDeviceFreq(chann); err != nil {
+		return errors.New("conn.SetDeviceFreq() " + err.Error())
 	}
-	req := genetlink.Message {
-		Header: genetlink.Header {
-			Command: nl80211.CMD_SET_CHANNEL,
-			Version: conn.fam.Version,
-		},
-		Data: attribs,
-	}
-	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
-	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
-	if err != nil {
-		if err.Error() == "invalid argument" && !OptsG.GuiMode {
-			fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
-			return nil
-		}
-		return errors.New("genetlink.Conn.Execute() " + err.Error())
-	}
-	conn.currentFreq = chann.CenterFreq
 	return nil
 }
 
@@ -162,7 +139,7 @@ func	(conn *JamConn)	SendScanAbort() error {
 		},
 		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
 		if err != syscall.ENOENT {
@@ -216,6 +193,7 @@ func	(conn *JamConn)	SetFilterForTargets() error {
 func	(conn *JamConn)	SetupPcapHandle() error {
 
 	inactive, err := pcap.NewInactiveHandle(conn.ifa.Name)
+
 	defer inactive.CleanUp()
 	if err != nil {
 		log.Fatalln("pcap.NewInactiveHandle() ", err)
@@ -226,7 +204,7 @@ func	(conn *JamConn)	SetupPcapHandle() error {
 	if err := inactive.SetSnapLen(512); err != nil {
 		log.Fatalln(err)
 	}
-	if err := inactive.SetTimeout(time.Second * 1); err != nil {
+	if err := inactive.SetTimeout(time.Millisecond * 100); err != nil {
 		log.Fatalln(err)
 	}
 	if err := inactive.SetRFMon(true); err != nil {
@@ -319,7 +297,6 @@ func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 }
 
 func	(conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
-
 	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
 		return errors.New("JamConn.SetIfaType() " + err.Error())
 	}
@@ -353,14 +330,25 @@ func	(conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
 	}
 	conn.SetLastAPScan(time.Now())
 	appendApList(results, apList, apWList)
+	if !OptsG.GuiMode {
+		fmt.Println("AP scan successful")
+	}
 	return nil
 }
 
-func	(conn *JamConn)	ChangeChanIfPast(timeout time.Duration) {
+func	(conn *JamConn)	ChangeChanIfPast(apList *List, timeout time.Duration) {
 
 	if time.Since(conn.lastChanSwitch) > timeout {
-		inx := randInt(1, len(ChanArrG))
-		_ = conn.SetDeviceChannel(inx)
+		inx := randInt(0, len(apList.contents))
+		i := 0
+		for _, v := range apList.contents {
+			if i == inx {
+				ap := (v).(AP)
+				_ = conn.SetDeviceFreq(layers.RadioTapChannelFrequency(ap.freq))
+			}
+			i++
+
+		}
 		conn.lastChanSwitch = time.Now()
 	}
 }
@@ -467,6 +455,9 @@ func	(conn *JamConn)	Deauthenticate(
 			return bSent, err
 		}
 		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
+			if err.Error() == "send: Resource temporarily unavailable" {
+				return 0, nil
+			}
 			return bSent, err
 		}
 		bSent += uint32(len(buff.Bytes()))
@@ -522,15 +513,19 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 		},
 		Data: attribs,
 	}
-	flags := netlink.HeaderFlagsRequest
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
 	_, err = conn.nlconn.Send(req, conn.fam.ID, flags)
 	if err != nil {
 		return false, errors.New("genetlink.Conn.Send() " + err.Error())
 	}
 	done := false
+	//scanStart := time.Now()
 	for !done {
 		msgs, _, err := conn.nlconn.Receive()
 		if err != nil {
+			if err.Error() == "device or resource busy" {
+				continue
+			}
 			return false, errors.New("genetlink.Conn.Recieve() " + err.Error())
 		}
 		for _, m := range msgs {
@@ -545,5 +540,10 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 			}
 		}
 	}
+	//if !done {
+	//	if err := conn.SendScanAbort(); err != nil {
+	//		return false, errors.New("JamConn.SendScanAbort() " + err.Error())
+	//	}
+	//}
 	return true, nil
 }

@@ -29,7 +29,7 @@ type Opts				struct {
 	APWhiteList			string	`short:"a" long:"apwlist" description:"file with new line separated list of SSIDs to be spared"`
 	GuiMode				bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
 	APScanInterval		uint32	`short:"s" long:"scaninterval" default:"60" description:"the interval between ap scans in seconds"`
-	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"5" description:"the interval between attacks in seconds"`
+	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"2" description:"the interval between attacks in seconds"`
 	AttackCount			uint16	`short:"p" long:"packetcount" default:"2" description:"the amount of packets to be sent during each attack interval"`
 	FiveGhzSupport		bool	`default:"true"`
 }
@@ -102,22 +102,30 @@ func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet
 		cliAddr = dot.Address2
 	}
 	// is the client whitelisted?
+	CliWListMutexG.Lock()
 	if _, ok := CliWList.Get(cliAddr.String()); ok {
+		CliWListMutexG.Unlock()
 		return
 	}
+	CliWListMutexG.Unlock()
 	// is the ap on our target list?
+	ApListMutexG.Lock()
 	if a, ok := APList.Get(apAddr.String()[:16]); ok {
 		ap = (a).(AP)
 	} else {
+		ApListMutexG.Unlock()
 		return
 	}
+	ApListMutexG.Unlock()
 	// have we seen this client before?
+	CliListMutexG.Lock()
 	if v, ok := CliList.Get(cliAddr.String()); ok {
 		cli = (v).(*Client)
 	} else {
 		cli = new(Client)
 		cli.hwaddr = cliAddr
 	}
+	CliListMutexG.Unlock()
 	if fromClient {
 		cli.dot = *dot
 		cli.tap = *tap
@@ -201,9 +209,11 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 			}
 		}
 		checkComms(apList, cliList, cliWList, packet)
-		monIfa.ChangeChanIfPast(time.Second * 1)
+		monIfa.ChangeChanIfPast(apList, time.Second * 10)
 		monIfa.DeauthClientsIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
-		monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), apWList, apList)
+		if OptsG.APScanInterval > 0 {
+			monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), apWList, apList)
+		}
 	}
 }
 
