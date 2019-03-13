@@ -25,6 +25,7 @@ type AP struct {
 	ssid		string
 	tap			layers.RadioTap
 	dot			layers.Dot11
+	freq		uint32
 	clients		map[string]*Client
 }
 
@@ -76,6 +77,9 @@ func	(s *AP)	DecodeBSS(b []byte) error {
 		switch ad.Type() {
 		case nl80211.BSS_BSSID:
 			s.hwaddr = ad.Bytes()
+			break
+		case nl80211.BSS_FREQUENCY:
+			s.freq = ad.Uint32()
 			break
 		case nl80211.BSS_INFORMATION_ELEMENTS:
 			ad.Do(s.getSSIDFromBSSIE)

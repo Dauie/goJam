@@ -162,7 +162,7 @@ func	removeFromCliWList(g *gocui.Gui, v *gocui.View) error{
 	if len(line) < MacStrLen {
 		return nil
 	}
-	CliWListGuiG.Del(line)
+	CliWListG.Del(line)
 	return nil
 }
 
@@ -177,7 +177,7 @@ func	removeFromAPWList(g *gocui.Gui, v *gocui.View) error {
 		}
 		return errors.New("getSSIDMACPair() " + err.Error())
 	}
-	APWListGuiG.Del(mac.String()[:16])
+	APWListG.Del(mac.String()[:16])
 	return nil
 }
 
@@ -188,9 +188,9 @@ func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 	if len(line) < MacStrLen {
 		return nil
 	}
-	CliWListGuiG.Add(line, line)
-	TargCliGuiG.Del(line)
-	for _, v := range TargAPGuiG.contents {
+	CliWListG.Add(line, line)
+	CliListG.Del(line)
+	for _, v := range APListG.contents {
 		ap := (v).(AP)
 		hwaddr, err := net.ParseMAC(line)
 		if err != nil {
@@ -198,7 +198,9 @@ func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 		}
 		if _, ok := ap.GetClient(hwaddr); ok {
 			ap.DelClient(hwaddr)
-			TargAPGuiG.Add(ap.hwaddr.String()[:16], ap)
+			ApListMutexG.Lock()
+			APListG.Add(ap.hwaddr.String()[:16], ap)
+			ApListMutexG.Unlock()
 		}
 	}
 	return nil
@@ -215,8 +217,10 @@ func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 		}
 		return errors.New("getSSIDMACPair() " + err.Error())
 	}
-	APWListGuiG.Add(mac.String()[:16], line)
-	TargAPGuiG.Del(mac.String()[:16])
+	APWListG.Add(mac.String()[:16], line)
+	ApListMutexG.Lock()
+	APListG.Del(mac.String()[:16])
+	ApListMutexG.Unlock()
 	return nil
 }
 
@@ -226,13 +230,14 @@ func	printCliView(view *gocui.View) {
 	var cliArr []string
 
 	view.Clear()
-	for _, v := range TargCliGuiG.contents {
+	for _, v := range CliListG.contents {
 		cli := (v).(*Client)
-		cliArr = append(cliArr, cli.hwaddr.String())
+		c := fmt.Sprintf("%s - %d\n", cli.hwaddr.String(), cli.nDeauth)
+		cliArr = append(cliArr, c)
 	}
 	sort.Strings(cliArr)
 	for _, v := range cliArr {
-		cliStr = cliStr + v + "\n"
+		cliStr = cliStr + v
 	}
 	_, err := view.Write([]byte(cliStr))
 	if err != nil {
@@ -246,7 +251,7 @@ func	printCliWListView(view *gocui.View) {
 	var cliArr []string
 
 	view.Clear()
-	for _, v := range CliWListGuiG.contents {
+	for _, v := range CliWListG.contents {
 		cli := (v).(string)
 		cliArr = append(cliArr, cli)
 	}
@@ -266,10 +271,12 @@ func	printAPs(view *gocui.View) {
 	var apArr	[]string
 
 	view.Clear()
-	for _, v := range TargAPGuiG.contents {
+	ApListMutexG.Lock()
+	for _, v := range APListG.contents {
 		ap := (v).(AP)
 		apArr = append(apArr, ap.ssid + " - " + ap.hwaddr.String())
 	}
+	ApListMutexG.Unlock()
 	sort.Strings(apArr)
 	for _, v := range apArr {
 		apStr = apStr + v + "\n"
@@ -286,7 +293,7 @@ func	printAPWListView(view *gocui.View) {
 	var apArr []string
 
 	view.Clear()
-	for _, v := range APWListGuiG.contents {
+	for _, v := range APWListG.contents {
 		ap := (v).(string)
 		apArr = append(apArr, ap)
 	}
@@ -306,22 +313,25 @@ func	printAssociation(view *gocui.View) {
 	var assocArr	[]string
 
 	view.Clear()
-	for _, v := range TargAPGuiG.contents {
+	ApListMutexG.Lock()
+	for _, v := range APListG.contents {
 		ap := (v).(AP)
-		apStr := fmt.Sprintf("%s - %s\n", ap.ssid, ap.hwaddr.String())
+		apStr := fmt.Sprintf("%s - %s - %dMhz\n", ap.ssid, ap.hwaddr.String(), ap.freq)
 		var cliArr []string
 		for _, v := range ap.clients {
-			cliArr = append(cliArr, v.hwaddr.String())
+			c := fmt.Sprintf("\t\t%s - %d\n", v.hwaddr.String(), v.nDeauth)
+			cliArr = append(cliArr, c)
 		}
 		sort.Strings(cliArr)
 		for _, v := range cliArr {
-			apStr = apStr + v + "\n"
+			apStr = apStr + v
 		}
-		assocArr = append(assocArr, apStr)
+		assocArr = append(assocArr, apStr + "\n")
 	}
+	ApListMutexG.Unlock()
 	sort.Strings(assocArr)
 	for _, v := range assocArr {
-		assocStr = assocStr + v + "\n"
+		assocStr = assocStr + v
 	}
 	_, err := view.Write([]byte(assocStr))
 	if err != nil {

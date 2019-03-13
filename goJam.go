@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,12 +42,14 @@ type Stats struct {
 }
 
 var (
+	StatsG			Stats
 	OptsG			Opts
-	MonIfaGuiG		*JamConn
-	APWListGuiG		*List
-	CliWListGuiG	*List
-	TargAPGuiG		*List
-	TargCliGuiG		*List
+	MonIfaG			*JamConn
+	APWListG		*List
+	CliWListG		*List
+	APListG			*List
+	ApListMutexG	sync.Mutex
+	CliListG		*List
 	GuiG			*gocui.Gui
 	QuitG			= false
 )
@@ -64,13 +67,13 @@ func	handleSigInt() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packet) {
+func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet) {
 
-	var cli		*Client
-	var ap		AP
-	var cliAddr	net.HardwareAddr
-	var apAddr	net.HardwareAddr
-	var fromClient = false
+	var cli			*Client
+	var ap			AP
+	var cliAddr		net.HardwareAddr
+	var apAddr		net.HardwareAddr
+	var fromClient	= false
 
 	if pkt == nil {
 		return
@@ -92,17 +95,17 @@ func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packe
 		cliAddr = dot.Address2
 	}
 	// is the client whitelisted?
-	if _, ok := wListCli.Get(cliAddr.String()); ok {
+	if _, ok := CliWList.Get(cliAddr.String()); ok {
 		return
 	}
 	// is the ap on our target list?
-	if a, ok := targAPs.Get(apAddr.String()[:16]); ok {
+	if a, ok := APList.Get(apAddr.String()[:16]); ok {
 		ap = (a).(AP)
 	} else {
 		return
 	}
 	// have we seen this client before?
-	if v, ok := targCli.Get(cliAddr.String()); ok {
+	if v, ok := CliList.Get(cliAddr.String()); ok {
 		cli = (v).(*Client)
 	} else {
 		cli = new(Client)
@@ -115,15 +118,16 @@ func	checkComms(targAPs *List, targCli *List, wListCli *List, pkt gopacket.Packe
 		ap.dot = *dot
 		ap.tap = *tap
 	}
-	targCli.Add(cli.hwaddr.String(), cli)
+	CliList.Add(cli.hwaddr.String(), cli)
 	ap.AddClient(cli)
-	targAPs.Add(ap.hwaddr.String()[:16], ap)
+	ApListMutexG.Lock()
+	APList.Add(ap.hwaddr.String()[:16], ap)
+	ApListMutexG.Unlock()
 }
 
-func	getWhiteLists(opts *Opts) (client List, ap List) {
+func	getWhiteLists(opts *Opts) (cliList List, apList List) {
 
 	apWList, err := getListFromFile(opts.APWhiteList)
-
 	if err != nil {
 		log.Fatalln("getListFromFile()", err)
 	}
@@ -134,13 +138,13 @@ func	getWhiteLists(opts *Opts) (client List, ap List) {
 	return cliWList, apWList
 }
 
-func	guiMode(monIfa *JamConn, APs *List, clients *List, APWList *List, CliWList *List) {
+func	guiMode(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliWList *List) {
 
-	MonIfaGuiG = monIfa
-	APWListGuiG = APWList
-	CliWListGuiG = CliWList
-	TargAPGuiG = APs
-	TargCliGuiG = clients
+	MonIfaG = monIfa
+	APWListG = apWList
+	CliWListG = cliWList
+	APListG = apList
+	CliListG = cliList
 
 	gui, err := initGui()
 	if err != nil {
@@ -152,14 +156,14 @@ func	guiMode(monIfa *JamConn, APs *List, clients *List, APWList *List, CliWList 
 	if err := keybindings(gui); err != nil {
 		log.Panicln(err)
 	}
-	go goJamLoop(MonIfaGuiG, TargAPGuiG, TargCliGuiG, APWListGuiG, CliWListGuiG)
+	go goJamLoop(MonIfaG, APListG, CliListG, APWListG, CliWListG)
 	go doEvery(time.Millisecond * 400, updateViews)
 	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
 	}
 }
 
-func	goJamLoop(monIfa *JamConn, targAPs *List, targClis *List, APWList *List, CliWList *List) {
+func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliWList *List) {
 
 	packSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 
@@ -180,9 +184,10 @@ func	goJamLoop(monIfa *JamConn, targAPs *List, targClis *List, APWList *List, Cl
 				break
 			}
 		}
-		checkComms(targAPs, targClis, CliWList, packet)
-		monIfa.DeauthClientsIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, targAPs)
-		monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), APWList, targAPs)
+		checkComms(apList, cliList, cliWList, packet)
+		monIfa.ChangeChanIfPast(time.Second * 1)
+		monIfa.DeauthClientsIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
+		monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), apWList, apList)
 	}
 }
 
@@ -196,8 +201,8 @@ func	initEnv() {
 
 func	main() {
 
-	var targAPs		List
-	var targClis	List
+	var apList	List
+	var cliList	List
 
 	initEnv()
 	if _, err := flags.ParseArgs(&OptsG, os.Args); err != nil {
@@ -213,7 +218,7 @@ func	main() {
 			log.Fatalln("genetlink.Conn.Close()", err)
 		}
 	}()
-	if err := monIfa.DoAPScan(&wListAPs, &targAPs); err != nil {
+	if err := monIfa.DoAPScan(&wListAPs, &apList); err != nil {
 		log.Fatalln("JamConn.DoAPScan()", err)
 	}
 	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
@@ -234,8 +239,8 @@ func	main() {
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
 	if OptsG.GuiMode {
-		guiMode(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
+		guiMode(monIfa, &apList, &cliList, &wListAPs, &wListCli)
 	} else {
-		goJamLoop(monIfa, &targAPs, &targClis, &wListAPs, &wListCli)
+		goJamLoop(monIfa, &apList, &cliList, &wListAPs, &wListCli)
 	}
 }

