@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/dauie/go-netlink/nl80211"
 	"log"
 	"math/rand"
 	"net"
@@ -10,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dauie/go-netlink/nl80211"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/jessevdk/go-flags"
@@ -23,20 +23,24 @@ import (
 
 
 
-type Opts struct {
+type Opts				struct {
 	MonitorInterface	string	`short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
-	ClientWhiteList		string	`short:"c" long:"cWhitelist" description:"file with new line separated list of MACs to be spared"`
-	APWhiteList			string	`short:"a" long:"aWhitelist" description:"file with new line separated list of SSIDs to be spared"`
+	ClientWhiteList		string	`short:"c" long:"clientwlist" description:"file with new line separated list of MACs to be spared"`
+	APWhiteList			string	`short:"a" long:"apwlist" description:"file with new line separated list of SSIDs to be spared"`
 	GuiMode				bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
-	APScanInterval		uint32	`short:"s" long:"scanInterval" default:"60" description:"the interval between ap scans in seconds"`
-	AttackInterval		uint32	`short:"t" long:"attackInterval" default:"5" description:"the interval between attacks in seconds"`
-	AttackCount			uint16	`short:"n" long:"attackCnt" default:"2" description:"the amount of packets to be sent during each attack interval"`
+	APScanInterval		uint32	`short:"s" long:"scaninterval" default:"60" description:"the interval between ap scans in seconds"`
+	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"5" description:"the interval between attacks in seconds"`
+	AttackCount			uint16	`short:"p" long:"packetcount" default:"2" description:"the amount of packets to be sent during each attack interval"`
 	FiveGhzSupport		bool	`default:"true"`
 }
 
-type Stats struct {
-	sentPackts		uint64
-	sentBytes		uint64
+type Stats			struct {
+	nDeauth			uint32
+	nDisassc		uint32
+	nPktTx			uint64
+	nByteTx			uint64
+	nByteMon		uint64
+	nPktMon			uint64
 	sessionStart	time.Duration
 	sessionEnd		time.Duration
 }
@@ -117,10 +121,16 @@ func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet
 	if fromClient {
 		cli.dot = *dot
 		cli.tap = *tap
+		cli.nPktTx += 1
+		ap.nPktRx += 1
 	} else {
 		ap.dot = *dot
 		ap.tap = *tap
+		cli.nPktRx += 1
+		ap.nPktTx += 1
 	}
+	StatsG.nPktMon += 1
+	StatsG.nByteMon += uint64(len(pkt.Data()))
 	CliListMutexG.Lock()
 	CliList.Add(cli.hwaddr.String(), cli)
 	CliListMutexG.Unlock()
@@ -162,7 +172,7 @@ func	guiMode(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliWLi
 		log.Panicln(err)
 	}
 	go goJamLoop(MonIfaG, APListG, CliListG, APWListG, CliWListG)
-	go doEvery(time.Millisecond * 400, updateViews)
+	go doEvery(time.Second * 1, updateViews)
 	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
 	}
@@ -184,6 +194,7 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 				continue
 			case "EOF":
 				QuitG = true
+				break
 			default:
 				log.Panicln("packSrc.NextPacket()", err)
 				break
@@ -225,9 +236,6 @@ func	main() {
 	}()
 	if err := monIfa.DoAPScan(&apWList, &apList); err != nil {
 		log.Fatalln("JamConn.DoAPScan()", err)
-	}
-	if err := monIfa.SetIfaType(nl80211.IFTYPE_MONITOR); err != nil {
-		log.Fatalln("JamConn.SetIfaType()", err.Error())
 	}
 	defer func() {
 		if err := monIfa.SetIfaType(nl80211.IFTYPE_STATION); err != nil {

@@ -13,20 +13,26 @@ import (
 )
 
 type Client		struct {
+	hwaddr		net.HardwareAddr
 	tap			layers.RadioTap
 	dot			layers.Dot11
-	hwaddr		net.HardwareAddr
 	nDeauth		uint32
 	nDisassc	uint32
+	nPktTx		uint32
+	nPktRx		uint32
 }
 
-type AP struct {
+type AP			struct {
 	hwaddr		net.HardwareAddr
 	ssid		string
 	tap			layers.RadioTap
 	dot			layers.Dot11
 	freq		uint32
 	clients		map[string]*Client
+	nDeauth		uint32
+	nDisassc	uint32
+	nPktTx		uint32
+	nPktRx		uint32
 }
 
 func	(s *AP)	AddClient(client *Client) {
