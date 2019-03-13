@@ -138,8 +138,8 @@ func	getSSIDMACPair(line string) (string, net.HardwareAddr, error) {
 	if len(line) < MacStrLen {
 		return "", net.HardwareAddr{}, errors.New("string too short")
 	}
-	if ok := strings.Contains(line, "-"); ok {
-		strs := strings.Split(line, "-")
+	if ok := strings.Contains(line, "|"); ok {
+		strs := strings.Split(line, "|")
 		ssid := strings.TrimSpace(string(strs[0]))
 		mac, err := net.ParseMAC(strings.TrimSpace(string(strs[1])))
 		if err != nil {
@@ -188,7 +188,6 @@ func	removeFromAPWList(g *gocui.Gui, v *gocui.View) error {
 func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
-	line = strings.Split(line, "-")[0]
 	line = strings.TrimSpace(line)
 	if len(line) < MacStrLen {
 		return nil
@@ -240,7 +239,7 @@ func	printCliView(view *gocui.View) {
 	CliListMutexG.Lock()
 	for _, v := range CliListG.contents {
 		cli := (v).(*Client)
-		c := fmt.Sprintf("%s - %d\n", cli.hwaddr.String(), cli.nDeauth)
+		c := fmt.Sprintf("%s\n", cli.hwaddr.String())
 		cliArr = append(cliArr, c)
 	}
 	CliListMutexG.Unlock()
@@ -285,7 +284,7 @@ func	printAPs(view *gocui.View) {
 	ApListMutexG.Lock()
 	for _, v := range APListG.contents {
 		ap := (v).(AP)
-		apArr = append(apArr, ap.ssid + " - " + ap.hwaddr.String())
+		apArr = append(apArr, ap.ssid + " | " + ap.hwaddr.String())
 	}
 	ApListMutexG.Unlock()
 	sort.Strings(apArr)
@@ -329,10 +328,10 @@ func	printAssociation(view *gocui.View) {
 	ApListMutexG.Lock()
 	for _, v := range APListG.contents {
 		ap := (v).(AP)
-		apStr := fmt.Sprintf("%s - %s - %dMhz\n", ap.ssid, ap.hwaddr.String(), ap.freq)
+		apStr := fmt.Sprintf("%s | %s | %dMhz\n", ap.ssid, ap.hwaddr.String(), ap.freq)
 		var cliArr []string
 		for _, v := range ap.clients {
-			c := fmt.Sprintf("\t\t%s - %d\n", v.hwaddr.String(), v.nDeauth)
+			c := fmt.Sprintf("\t\t%s Ͱ %d\n", v.hwaddr.String(), v.nDeauth)
 			cliArr = append(cliArr, c)
 		}
 		sort.Strings(cliArr)

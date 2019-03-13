@@ -38,7 +38,7 @@ func	getDot11ScanMCID(fam *genetlink.Family) (uint32, error) {
 	return scanMCID, nil
 }
 
-func	getNL80211Family(conn *genetlink.Conn) (* genetlink.Family, error) {
+func	getDot11Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 
 	fam, err := conn.GetFamily("nl80211")
 	if err != nil {
