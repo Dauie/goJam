@@ -29,8 +29,8 @@ type Opts				struct {
 	APWhiteList			string	`short:"a" long:"apwlist" description:"file with new line separated list of SSIDs to be spared"`
 	GuiMode				bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
 	APScanInterval		uint32	`short:"s" long:"scaninterval" default:"60" description:"the interval between ap scans in seconds"`
-	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"2" description:"the interval between attacks in seconds"`
-	AttackCount			uint16	`short:"p" long:"packetcount" default:"2" description:"the amount of packets to be sent during each attack interval"`
+	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"10" description:"the interval between attacks in seconds"`
+	AttackCount			uint16	`short:"p" long:"packetcount" default:"5" description:"the amount of packets to be sent during each attack interval"`
 	FiveGhzSupport		bool	`default:"true"`
 }
 
@@ -209,8 +209,7 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 			}
 		}
 		checkComms(apList, cliList, cliWList, packet)
-		monIfa.ChangeChanIfPast(apList, time.Second * 10)
-		monIfa.DeauthClientsIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
+		monIfa.AttackIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
 		if OptsG.APScanInterval > 0 {
 			monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), apWList, apList)
 		}

