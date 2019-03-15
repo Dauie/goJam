@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"sort"
 	"strings"
 	"time"
 
@@ -223,23 +222,10 @@ func	printStatsView(view *gocui.View) {
 	}
 }
 
-func	printCliView(view *gocui.View) {
-
-	var cliStr string
-	var cliArr []string
+func	printCliListView(view *gocui.View) {
 
 	view.Clear()
-	CliListMutexG.Lock()
-	for _, v := range CliListG.contents {
-		cli := (v).(*Client)
-		c := fmt.Sprintf("%s\n", cli.hwaddr.String())
-		cliArr = append(cliArr, c)
-	}
-	CliListMutexG.Unlock()
-	sort.Strings(cliArr)
-	for _, v := range cliArr {
-		cliStr = cliStr + v
-	}
+	cliStr := sPrintfCliList(CliListG)
 	_, err := view.Write([]byte(cliStr))
 	if err != nil {
 		log.Panicln(err)
@@ -248,42 +234,18 @@ func	printCliView(view *gocui.View) {
 
 func	printCliWListView(view *gocui.View) {
 
-	var cliStr	string
-	var cliArr	[]string
-
 	view.Clear()
-	CliWListMutexG.Lock()
-	for _, v := range CliWListG.contents {
-		cli := (v).(string)
-		cliArr = append(cliArr, cli)
-	}
-	CliWListMutexG.Unlock()
-	sort.Strings(cliArr)
-	for _, v := range cliArr {
-		cliStr = cliStr + v + "\n"
-	}
+	cliStr := sPrintfCliWList(CliWListG)
 	_, err := view.Write([]byte(cliStr))
 	if err != nil {
 		log.Panicln(err)
 	}
 }
 
-func printAPView(view *gocui.View) {
-
-	var apStr	string
-	var apArr	[]string
+func	printAPListView(view *gocui.View) {
 
 	view.Clear()
-	APListMutexG.Lock()
-	for _, v := range APListG.contents {
-		ap := (v).(AP)
-		apArr = append(apArr, ap.ssid + " | " + ap.hwaddr.String())
-	}
-	APListMutexG.Unlock()
-	sort.Strings(apArr)
-	for _, v := range apArr {
-		apStr = apStr + v + "\n"
-	}
+	apStr := sPrintfAPList(APListG)
 	_, err := view.Write([]byte(apStr))
 	if err != nil {
 		log.Panicln(err)
@@ -292,52 +254,18 @@ func printAPView(view *gocui.View) {
 
 func	printAPWListView(view *gocui.View) {
 
-	var apStr string
-	var apArr []string
-
 	view.Clear()
-	APWListMutexG.Lock()
-	for _, v := range APWListG.contents {
-		ap := (v).(string)
-		apArr = append(apArr, ap)
-	}
-	APWListMutexG.Unlock()
-	sort.Strings(apArr)
-	for _, v := range apArr {
-		apStr = apStr + v + "\n"
-	}
+	apStr := sPrintfAPWList(APWListG)
 	_, err := view.Write([]byte(apStr))
 	if err != nil {
 		log.Panicln(err)
 	}
 }
 
-func	printAssociation(view *gocui.View) {
-
-	var assocStr	string
-	var assocArr	[]string
+func	printAssociationView(view *gocui.View) {
 
 	view.Clear()
-	APListMutexG.Lock()
-	for _, v := range APListG.contents {
-		ap := (v).(AP)
-		apStr := fmt.Sprintf("%s | %s | %dMhz\n", ap.ssid, ap.hwaddr.String(), ap.freq)
-		var cliArr []string
-		for _, v := range ap.clients {
-			c := fmt.Sprintf("\t\t\t%s Ͱ %d\n", v.hwaddr.String(), v.nDeauth)
-			cliArr = append(cliArr, c)
-		}
-		sort.Strings(cliArr)
-		for _, v := range cliArr {
-			apStr = apStr + v
-		}
-		assocArr = append(assocArr, apStr + "\n")
-	}
-	APListMutexG.Unlock()
-	sort.Strings(assocArr)
-	for _, v := range assocArr {
-		assocStr = assocStr + v
-	}
+	assocStr := sPrintfAssociation(APListG, true)
 	_, err := view.Write([]byte(assocStr))
 	if err != nil {
 		log.Panicln(err)
@@ -345,6 +273,7 @@ func	printAssociation(view *gocui.View) {
 }
 
 func	statsView(g *gocui.Gui) error {
+
 	mX, mY := g.Size()
 
 	if err := checkDimensions(mX, mY); err != nil {
@@ -393,7 +322,7 @@ func	cliView(g *gocui.Gui) error {
 			return err
 		}
 	}
-	printCliView(view)
+	printCliListView(view)
 	return nil
 }
 
@@ -441,7 +370,7 @@ func	apView(g *gocui.Gui) error {
 		view.SelBgColor = BGColorG
 		view.SelFgColor = FGColorG
 	}
-	printAPView(view)
+	printAPListView(view)
 	return nil
 }
 
@@ -489,7 +418,7 @@ func	associationView(g *gocui.Gui) error {
 		view.SelBgColor = BGColorG
 		view.SelFgColor = FGColorG
 	}
-	printAssociation(view)
+	printAssociationView(view)
 	return nil
 }
 
@@ -501,8 +430,8 @@ func	updateViews(t time.Time) {
 		CliWListViewG, StatsViewG,
 	}
 	funcs := []func(view *gocui.View) {
-		printAssociation, printAPView,
-		printAPWListView, printCliView,
+		printAssociationView, printAPListView,
+		printAPWListView, printCliListView,
 		printCliWListView, printStatsView,
 	}
 

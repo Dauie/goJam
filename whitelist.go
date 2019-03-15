@@ -46,13 +46,13 @@ func	appendApList(scanResults []AP, apList *List, apWList *List) List {
 
 	var apWatch List
 
-	if !OptsG.GuiMode {
+	if !OptsG.GuiMode && OptsG.DumpDuration == 0 {
 		fmt.Printf("AP watchlist updating...\n")
 	}
 	for _, v := range scanResults {
 		if _, ok := apWList.Get(apKey(v.hwaddr.String())); !ok {
 			if _, ok := apList.Get(apKey(v.hwaddr.String())); !ok {
-				if !OptsG.GuiMode {
+				if !OptsG.GuiMode && OptsG.DumpDuration == 0 {
 					fmt.Printf("%s - %s", v.ssid, v.hwaddr.String())
 				}
 				apList.Add(apKey(v.hwaddr.String()), v)
@@ -60,16 +60,19 @@ func	appendApList(scanResults []AP, apList *List, apWList *List) List {
 				if chann, ok := ChanMapG[v.freq]; ok {
 					if ok := contains(ActiveChanArrG, chann.CenterFreq); !ok {
 						ActiveChanArrG = append(ActiveChanArrG, chann)
-						if !OptsG.GuiMode {
+						if !OptsG.GuiMode && OptsG.DumpDuration == 0 {
 							fmt.Printf("\t%dMhz added to active", v.freq)
 						}
 					}
 				}
-				if !OptsG.GuiMode {
+				if !OptsG.GuiMode && OptsG.DumpDuration == 0 {
 					fmt.Println("")
 				}
 			}
 		}
+	}
+	if !OptsG.GuiMode && OptsG.DumpDuration == 0 {
+		fmt.Println("AP scan successful")
 	}
 	return apWatch
 }

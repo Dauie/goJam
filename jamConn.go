@@ -199,8 +199,14 @@ func	(conn *JamConn)	SetupPcapHandle() error {
 	if err := inactive.SetSnapLen(1024); err != nil {
 		log.Fatalln(err)
 	}
-	if err := inactive.SetTimeout(time.Millisecond * 100); err != nil {
-		log.Fatalln(err)
+	if OptsG.DumpDuration > 0 {
+		if err := inactive.SetTimeout(time.Second * time.Duration(OptsG.DumpDuration)); err != nil {
+			log.Fatalln(err)
+		}
+	} else {
+		if err := inactive.SetTimeout(time.Millisecond * 100); err != nil {
+			log.Fatalln(err)
+		}
 	}
 	if err := inactive.SetRFMon(true); err != nil {
 		log.Fatalln(err)
@@ -326,9 +332,6 @@ func	(conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
 	}
 	conn.SetLastAPScan(time.Now())
 	appendApList(results, apList, apWList)
-	if !OptsG.GuiMode {
-		fmt.Println("AP scan successful")
-	}
 	return nil
 }
 

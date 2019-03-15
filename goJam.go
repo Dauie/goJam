@@ -21,25 +21,15 @@ import (
 // 5. add "stats" view to the top of gui and "stats" printout at program's end
 
 type Opts				struct {
+	DumpDuration		uint32	`short:"m" long:"monitor" default:"0" description:"specify an amount of time in seconds to monitor, at the end a list of APs and clients will be displayed"`
 	MonitorInterface	string	`short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
-	ClientWhiteList		string	`short:"c" long:"clientwlist" description:"file with new line separated list of MACs to be spared"`
-	APWhiteList			string	`short:"a" long:"apwlist" description:"file with new line separated list of SSIDs to be spared"`
+	ClientWhiteList		string	`short:"c" long:"clientwlist" description:"file with new line separated list of client MACs to be spared"`
+	APWhiteList			string	`short:"a" long:"apwlist" description:"file with new line separated list of AP MACs to be spared"`
 	GuiMode				bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
 	APScanInterval		uint32	`short:"s" long:"scaninterval" default:"60" description:"the interval between ap scans in seconds"`
 	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"10" description:"the interval between attacks in seconds"`
 	AttackCount			uint16	`short:"p" long:"packetcount" default:"5" description:"the amount of packets to be sent during each attack interval"`
-	FiveGhzSupport		bool	`default:"true"`
-}
-
-type Stats			struct {
-	nDeauth			uint32
-	nDisassc		uint32
-	nPktTx			uint64
-	nByteTx			uint64
-	nByteMon		uint64
-	nPktMon			uint64
-	sessionStart	time.Duration
-	sessionEnd		time.Duration
+	ChanChangeInterval	uint32	`short:"h" long:"chaninterval" default:"3" description:"the interval between channel switches"`
 }
 
 var (
@@ -207,7 +197,7 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 		}
 		checkComms(apList, cliList, cliWList, packet)
 		monIfa.AttackIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
-		monIfa.ChangeChanIfPast(time.Second * 3)
+		monIfa.ChangeChanIfPast(time.Second * time.Duration(OptsG.ChanChangeInterval))
 		if OptsG.APScanInterval > 0 {
 			monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), apWList, apList)
 		}
@@ -233,12 +223,13 @@ func	main() {
 	var apList		List
 	var apWList		List
 	var cliList		List
+	var cliWList	List
 
 	initEnv()
 	if _, err := flags.ParseArgs(&OptsG, os.Args); err != nil {
 		os.Exit(1)
 	}
-	cliWList, apWList := getWhiteLists(&OptsG)
+	cliWList, apWList = getWhiteLists(&OptsG)
 	monIfa, err := NewJamConn(OptsG.MonitorInterface)
 	if err != nil {
 		log.Fatalln("NewJamConn()", err)
@@ -265,9 +256,13 @@ func	main() {
 	}
 	monIfa.SetLastChanSwitch(time.Now())
 	monIfa.SetLastDeauth(time.Now())
-	if OptsG.GuiMode {
-		guiMode(monIfa, &apList, &cliList, &apWList, &cliWList )
+	StatsG.SetSessionStart(time.Now())
+	if OptsG.DumpDuration > 0 {
+		monitorDump(monIfa, &apList, &cliList, &apWList, &cliWList)
+	} else if OptsG.GuiMode {
+		guiMode(monIfa, &apList, &cliList, &apWList, &cliWList)
 	} else {
 		goJamLoop(monIfa, &apList, &cliList, &apWList, &cliWList)
 	}
+	StatsG.SetSessionEnd(time.Now())
 }

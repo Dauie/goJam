@@ -1,7 +1,10 @@
 default: build
 
+src = goJam.go jamConn.go list.go apClient.go stats.go
+src += chans.go ifaUtil.go constants.go whitelist.go gui.go print.go dump.go
+
 build:
-	go build goJam.go jamConn.go list.go apClient.go chans.go ifaUtil.go constants.go whitelist.go gui.go
+	go build $(src)
 
 clean:
 	@rm goJam
