@@ -207,6 +207,7 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 		}
 		checkComms(apList, cliList, cliWList, packet)
 		monIfa.AttackIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
+		monIfa.ChangeChanIfPast(time.Second * 3)
 		if OptsG.APScanInterval > 0 {
 			monIfa.DoAPScanIfPast(time.Second * time.Duration(OptsG.APScanInterval), apWList, apList)
 		}
@@ -215,6 +216,12 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 
 func	initEnv() {
 
+	// add 2.4Ghz band to active channels.
+	for e, v := range ChanArrG {
+		if e < 14 {
+			ActiveChanArrG = append(ActiveChanArrG, v)
+		}
+	}
 	//set rand seed
 	rand.Seed(time.Now().UTC().UnixNano())
 	//catch sigint

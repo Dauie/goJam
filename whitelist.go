@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 )
@@ -27,7 +28,7 @@ func getListFromFile(filename string, fn keyDecorator) (List, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			fmt.Println("os.File.Close()", err)
+			log.Panicln("os.File.Close()", err)
 		}
 	}()
 	fscanner := bufio.NewScanner(file)
@@ -41,7 +42,7 @@ func getListFromFile(filename string, fn keyDecorator) (List, error) {
 	return list, nil
 }
 
-func appendApList(scanResults []AP, apList *List, apWList *List) List {
+func	appendApList(scanResults []AP, apList *List, apWList *List) List {
 
 	var apWatch List
 
@@ -50,10 +51,24 @@ func appendApList(scanResults []AP, apList *List, apWList *List) List {
 	}
 	for _, v := range scanResults {
 		if _, ok := apWList.Get(apKey(v.hwaddr.String())); !ok {
-			if !OptsG.GuiMode {
-				fmt.Printf("%s - %s\n", v.ssid, v.hwaddr.String())
+			if _, ok := apList.Get(apKey(v.hwaddr.String())); !ok {
+				if !OptsG.GuiMode {
+					fmt.Printf("%s - %s", v.ssid, v.hwaddr.String())
+				}
+				apList.Add(apKey(v.hwaddr.String()), v)
+				//add this ap's channel to the active channel array
+				if chann, ok := ChanMapG[v.freq]; ok {
+					if ok := contains(ActiveChanArrG, chann.CenterFreq); !ok {
+						ActiveChanArrG = append(ActiveChanArrG, chann)
+						if !OptsG.GuiMode {
+							fmt.Printf("\t%dMhz added to active", v.freq)
+						}
+					}
+				}
+				if !OptsG.GuiMode {
+					fmt.Println("")
+				}
 			}
-			apList.Add(apKey(v.hwaddr.String()), v)
 		}
 	}
 	return apWatch

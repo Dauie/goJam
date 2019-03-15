@@ -69,12 +69,10 @@ func	NewJamConn(ifaName string) (*JamConn, error) {
 	return _NewJamConn(nlconn, &ifa, fam), nil
 }
 
-func	(conn *JamConn)	SetDeviceChannel(c int) error {
+func	(conn *JamConn)	SetRandChannel() error {
 
-	if c < 0 || c > len(ChanArrG) - 1 {
-		return errors.New("invalid channel")
-	}
-	chann := layers.RadioTapChannelFrequency(ChanArrG[c].CenterFreq)
+	inx := randInt(1, len(ChanArrG))
+	chann := layers.RadioTapChannelFrequency(ChanArrG[inx].CenterFreq)
 	if err := conn.SetDeviceFreq(chann); err != nil {
 		return errors.New("conn.SetDeviceFreq() " + err.Error())
 	}
@@ -83,12 +81,9 @@ func	(conn *JamConn)	SetDeviceChannel(c int) error {
 
 func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 
-	chann, ok := ChanMapG[uint16(freq)]
-	if !ok {
+	chann, ok := ChanMapG[uint32(freq)]
+	if !ok && !OptsG.GuiMode {
 		return errors.New("channel not found " + freq.String())
-	}
-	if !OptsG.FiveGhzSupport && chann.CenterFreq > 5000 {
-		return nil
 	}
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
@@ -110,7 +105,7 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
 		if err.Error() == "invalid argument" {
-			OptsG.FiveGhzSupport = false
+			ActiveChanArrG = remove(ActiveChanArrG, uint32(freq))
 			if !OptsG.GuiMode {
 				fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
 			}
@@ -118,6 +113,7 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
 	}
+	conn.SetLastChanSwitch(time.Now())
 	conn.currentFreq = chann.CenterFreq
 	return nil
 }
@@ -345,6 +341,13 @@ func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, apWList *List, apList
 	}
 }
 
+func	(conn *JamConn)	ChangeChanIfPast(timeout time.Duration) {
+
+	if time.Since(conn.lastChanSwitch) > timeout {
+		_ = conn.SetRandChannel()
+	}
+}
+
 func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *List) {
 
 	if time.Since(conn.lastDeauth) > timeout {
@@ -507,7 +510,6 @@ func	(conn *JamConn)	Disassociate(
 	}
 	return nPkt, nByte, nil
 }
-
 
 func	(conn* JamConn)	TriggerScan() (bool, error) {
 

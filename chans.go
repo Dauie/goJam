@@ -7,6 +7,8 @@ type Channel struct {
 	ChanWidth	uint32
 }
 
+var ActiveChanArrG []Channel
+
 var ChanArrG = []Channel {
 	{ LowerFreq: 2401, CenterFreq: 2412, UpperFreq: 2423, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
 	{ LowerFreq: 2406, CenterFreq: 2412, UpperFreq: 2428, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
@@ -49,7 +51,7 @@ var ChanArrG = []Channel {
 }
 
 
-var ChanMapG = map[uint16]Channel {
+var ChanMapG = map[uint32]Channel {
 	2412: { LowerFreq: 2401, CenterFreq: 2412, UpperFreq: 2423, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
 	2417: { LowerFreq: 2406, CenterFreq: 2417, UpperFreq: 2428, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
 	2422: { LowerFreq: 2411, CenterFreq: 2422, UpperFreq: 2433, ChanWidth:  NL_80211_CHAN_WIDTH_20 },
@@ -88,4 +90,29 @@ var ChanMapG = map[uint16]Channel {
 	5785: { CenterFreq: 5785, ChanWidth: NL_80211_CHAN_WIDTH_40 },
 	5805: { CenterFreq: 5805, ChanWidth: NL_80211_CHAN_WIDTH_40 },
 	5825: { CenterFreq: 5825, ChanWidth: NL_80211_CHAN_WIDTH_40 },
+}
+
+func	contains(chanArr []Channel, chann uint32) bool {
+
+	for _, v := range chanArr {
+		if v.CenterFreq == chann {
+			return true
+		}
+	}
+	return false
+}
+
+func	remove(chanArr []Channel, chann uint32) []Channel {
+
+	j := 0
+
+	nArr := make([]Channel, len(chanArr))
+	for i := 0; i < len(chanArr); i++ {
+		if chanArr[i].CenterFreq == chann {
+			continue
+		}
+		nArr[j] = chanArr[i]
+		j += 1
+	}
+	return nArr
 }
