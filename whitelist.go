@@ -16,7 +16,7 @@ func apKey(ap string) string {
 
 func getListFromFile(filename string, fn keyDecorator) (List, error) {
 
-	var list List
+	var list	List
 
 	if filename == "" {
 		return list, nil
@@ -34,7 +34,7 @@ func getListFromFile(filename string, fn keyDecorator) (List, error) {
 	for fscanner.Scan() {
 		key := strings.TrimSpace(fscanner.Text())
 		if fn != nil {
-			key = fn(key)
+			list.Add(fn(key), key)
 		}
 		list.Add(key, key)
 	}

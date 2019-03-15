@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/dauie/go-netlink/nl80211"
 	"log"
 	"math/rand"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dauie/go-netlink/nl80211"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/jessevdk/go-flags"
