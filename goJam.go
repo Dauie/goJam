@@ -18,10 +18,7 @@ import (
 )
 
 /*TODO*/
-// 4. debug shutdown concurrency issues
 // 5. add "stats" view to the top of gui and "stats" printout at program's end
-
-
 
 type Opts				struct {
 	MonitorInterface	string	`short:"i" long:"interface" required:"true" description:"name of interface that will be used for monitoring and injecting frames (e.g wlan0)"`
@@ -49,13 +46,13 @@ var (
 	StatsG			Stats
 	OptsG			Opts
 	MonIfaG			*JamConn
-	APWListG		*List
+	APWListG		*List		//key: mac[:16] value: mac
 	APWListMutexG	sync.Mutex
-	CliWListG		*List
+	CliWListG		*List		//key: mac value: mac
 	CliWListMutexG	sync.Mutex
-	APListG			*List
-	ApListMutexG	sync.Mutex
-	CliListG		*List
+	APListG			*List		//key: mac[:16] value: AP
+	APListMutexG	sync.Mutex
+	CliListG		*List		//key: mac value: Client
 	CliListMutexG	sync.Mutex
 	GuiG			*gocui.Gui
 	QuitG			= false
@@ -74,7 +71,7 @@ func	handleSigInt() {
 	signal.Notify(sigc, syscall.SIGINT)
 }
 
-func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet) {
+func	checkComms(apList *List, cliList *List, cliWList *List, pkt gopacket.Packet) {
 
 	var cli			*Client
 	var ap			AP
@@ -103,23 +100,23 @@ func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet
 	}
 	// is the client whitelisted?
 	CliWListMutexG.Lock()
-	if _, ok := CliWList.Get(cliAddr.String()); ok {
+	if _, ok := cliWList.Get(cliAddr.String()); ok {
 		CliWListMutexG.Unlock()
 		return
 	}
 	CliWListMutexG.Unlock()
 	// is the ap on our target list?
-	ApListMutexG.Lock()
-	if a, ok := APList.Get(apAddr.String()[:16]); ok {
+	APListMutexG.Lock()
+	if a, ok := apList.Get(apKey(apAddr.String())); ok {
 		ap = (a).(AP)
 	} else {
-		ApListMutexG.Unlock()
+		APListMutexG.Unlock()
 		return
 	}
-	ApListMutexG.Unlock()
+	APListMutexG.Unlock()
 	// have we seen this client before?
 	CliListMutexG.Lock()
-	if v, ok := CliList.Get(cliAddr.String()); ok {
+	if v, ok := cliList.Get(cliAddr.String()); ok {
 		cli = (v).(*Client)
 	} else {
 		cli = new(Client)
@@ -140,21 +137,21 @@ func	checkComms(APList *List, CliList *List, CliWList *List, pkt gopacket.Packet
 	StatsG.nPktMon += 1
 	StatsG.nByteMon += uint64(len(pkt.Data()))
 	CliListMutexG.Lock()
-	CliList.Add(cli.hwaddr.String(), cli)
+	cliList.Add(cli.hwaddr.String(), cli)
 	CliListMutexG.Unlock()
 	ap.AddClient(cli)
-	ApListMutexG.Lock()
-	APList.Add(ap.hwaddr.String()[:16], ap)
-	ApListMutexG.Unlock()
+	APListMutexG.Lock()
+	apList.Add(apKey(ap.hwaddr.String()), ap)
+	APListMutexG.Unlock()
 }
 
 func	getWhiteLists(opts *Opts) (cliList List, apList List) {
 
-	apWList, err := getListFromFile(opts.APWhiteList)
+	apWList, err := getListFromFile(opts.APWhiteList, apKey)
 	if err != nil {
 		log.Fatalln("getListFromFile()", err)
 	}
-	cliWList, err := getListFromFile(opts.ClientWhiteList)
+	cliWList, err := getListFromFile(opts.ClientWhiteList, nil)
 	if err != nil {
 		log.Fatalln("getListFromFile()", err)
 	}
@@ -226,8 +223,9 @@ func	initEnv() {
 
 func	main() {
 
-	var apList	List
-	var cliList	List
+	var apList		List
+	var apWList		List
+	var cliList		List
 
 	initEnv()
 	if _, err := flags.ParseArgs(&OptsG, os.Args); err != nil {
