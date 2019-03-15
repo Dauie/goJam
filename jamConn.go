@@ -348,6 +348,10 @@ func	(conn *JamConn)	DoAPScanIfPast(timeout time.Duration, apWList *List, apList
 func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *List) {
 
 	if time.Since(conn.lastDeauth) > timeout {
+		APListMutexG.Lock()
+		defer APListMutexG.Unlock()
+		CliListMutexG.Lock()
+		defer CliListMutexG.Unlock()
 		for _, v := range apList.contents {
 			ap := v.(AP)
 			if ap.tap.ChannelFrequency != 0 {
@@ -393,9 +397,7 @@ func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *L
 				StatsG.nDisassc += uint32(nPkt)
 				ap.nDisassc += uint32(nPkt)
 				cli.nDisassc += uint32(nPkt)
-				APListMutexG.Lock()
 				apList.Add(apKey(ap.hwaddr.String()), ap)
-				APListMutexG.Unlock()
 			}
 		}
 		conn.SetLastDeauth(time.Now())

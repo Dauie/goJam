@@ -196,7 +196,7 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 					"\ndevice possibly disconnected or removed from monitor mode")
 				break
 			case "Timeout Expired":
-				continue
+				break
 			case "EOF":
 				QuitG = true
 				break
