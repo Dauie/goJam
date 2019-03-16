@@ -215,7 +215,11 @@ func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 func	printStatsView(view *gocui.View) {
 
 	view.Clear()
-	statStr := fmt.Sprintf("pkts caped: %d/%dkb\t\tdeauth sent: %d", StatsG.nPktMon, StatsG.nByteMon, StatsG.nPktTx)
+	monSizeStr := ByteCountIEC(StatsG.nByteMon)
+	txSizeStr := ByteCountIEC(StatsG.nByteTx)
+	timeStr := sPrintTimeSince(StatsG.sessionStart)
+	statStr := fmt.Sprintf("monPk: %d/%s\t\t\t\tpkTx: %d/%s\t\t\t\tnDeauth\\nDissac: %d/%d\t\t\t\t%s",
+		StatsG.nPktMon, monSizeStr, StatsG.nPktTx, txSizeStr, StatsG.nDeauth, StatsG.nDisassc, timeStr)
 	_, err := view.Write([]byte(statStr))
 	if err != nil {
 		log.Panicln(err)
@@ -235,7 +239,7 @@ func	printCliListView(view *gocui.View) {
 func	printCliWListView(view *gocui.View) {
 
 	view.Clear()
-	cliStr := sPrintfCliWList(CliWListG)
+	cliStr := sPrintCliWList(CliWListG)
 	_, err := view.Write([]byte(cliStr))
 	if err != nil {
 		log.Panicln(err)
@@ -245,7 +249,7 @@ func	printCliWListView(view *gocui.View) {
 func	printAPListView(view *gocui.View) {
 
 	view.Clear()
-	apStr := sPrintfAPList(APListG)
+	apStr := sPrintAPList(APListG)
 	_, err := view.Write([]byte(apStr))
 	if err != nil {
 		log.Panicln(err)
@@ -255,7 +259,7 @@ func	printAPListView(view *gocui.View) {
 func	printAPWListView(view *gocui.View) {
 
 	view.Clear()
-	apStr := sPrintfAPWList(APWListG)
+	apStr := sPrintAPWList(APWListG)
 	_, err := view.Write([]byte(apStr))
 	if err != nil {
 		log.Panicln(err)
@@ -265,7 +269,7 @@ func	printAPWListView(view *gocui.View) {
 func	printAssociationView(view *gocui.View) {
 
 	view.Clear()
-	assocStr := sPrintfAssociation(APListG, true)
+	assocStr := sPrintAssociation(APListG, true)
 	_, err := view.Write([]byte(assocStr))
 	if err != nil {
 		log.Panicln(err)

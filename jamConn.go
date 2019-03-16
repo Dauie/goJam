@@ -71,20 +71,16 @@ func	NewJamConn(ifaName string) (*JamConn, error) {
 
 func	(conn *JamConn)	SetRandChannel() error {
 
-	inx := randInt(1, len(ChanArrG))
-	chann := layers.RadioTapChannelFrequency(ChanArrG[inx].CenterFreq)
+	inx := randInt(0, len(ChanArrG) - 1)
+	chann := ChanArrG[inx]
 	if err := conn.SetDeviceFreq(chann); err != nil {
 		return errors.New("conn.SetDeviceFreq() " + err.Error())
 	}
 	return nil
 }
 
-func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
+func	(conn *JamConn)	SetDeviceFreq(chann Channel) error {
 
-	chann, ok := ChanMapG[uint32(freq)]
-	if !ok && !OptsG.GuiMode {
-		return errors.New("channel not found " + freq.String())
-	}
 	encoder := netlink.NewAttributeEncoder()
 	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
 	encoder.Uint32(nl80211.ATTR_WIPHY_FREQ, chann.CenterFreq)
@@ -105,7 +101,7 @@ func	(conn *JamConn)	SetDeviceFreq(freq layers.RadioTapChannelFrequency) error {
 	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
 	if err != nil {
 		if err.Error() == "invalid argument" {
-			ActiveChanArrG = remove(ActiveChanArrG, uint32(freq))
+			ActiveChanArrG = remove(ActiveChanArrG, chann.CenterFreq)
 			if !OptsG.GuiMode {
 				fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
 			}
@@ -353,15 +349,13 @@ func	(conn *JamConn)	ChangeChanIfPast(timeout time.Duration) {
 
 func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *List) {
 
+
 	if time.Since(conn.lastDeauth) > timeout {
-		APListMutexG.Lock()
-		defer APListMutexG.Unlock()
-		CliListMutexG.Lock()
-		defer CliListMutexG.Unlock()
 		for _, v := range apList.contents {
 			ap := v.(AP)
 			if ap.tap.ChannelFrequency != 0 {
-				if err := conn.SetDeviceFreq(ap.tap.ChannelFrequency); err != nil {
+				chann := ChanMapG[uint32(ap.tap.ChannelFrequency)]
+				if err := conn.SetDeviceFreq(chann); err != nil {
 					if !OptsG.GuiMode {
 						fmt.Println(err)
 					}
@@ -403,7 +397,9 @@ func	(conn *JamConn) AttackIfPast(timeout time.Duration, count uint16, apList *L
 				StatsG.nDisassc += uint32(nPkt)
 				ap.nDisassc += uint32(nPkt)
 				cli.nDisassc += uint32(nPkt)
+				APListMutexG.Lock()
 				apList.Add(apKey(ap.hwaddr.String()), ap)
+				APListMutexG.Unlock()
 			}
 		}
 		conn.SetLastDeauth(time.Now())

@@ -27,10 +27,11 @@ func	monitorDump(monIfa *JamConn, apList *List, cliList *List, apWList *List, cl
 				log.Panicln("packSrc.NextPacket()", err)
 				break
 			}
+		} else {
+			checkComms(apList, cliList, cliWList, packet)
 		}
-		checkComms(apList, cliList, cliWList, packet)
 		monIfa.ChangeChanIfPast(time.Millisecond * 100)
 	}
-	dumpStr := sPrintfDump(apList, cliWList)
+	dumpStr := sPrintDump(apList, cliWList)
 	fmt.Print(dumpStr)
 }

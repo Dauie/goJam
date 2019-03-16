@@ -194,8 +194,9 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 				log.Panicln("packSrc.NextPacket()", err)
 				break
 			}
+		} else {
+			checkComms(apList, cliList, cliWList, packet)
 		}
-		checkComms(apList, cliList, cliWList, packet)
 		monIfa.AttackIfPast(time.Second * time.Duration(OptsG.AttackInterval), OptsG.AttackCount, apList)
 		monIfa.ChangeChanIfPast(time.Second * time.Duration(OptsG.ChanChangeInterval))
 		if OptsG.APScanInterval > 0 {

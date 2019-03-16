@@ -3,7 +3,31 @@ package main
 import (
 	"fmt"
 	"sort"
+	"time"
 )
+
+/*Thanks youngbasic.org! (https://yourbasic.org/golang/formatting-byte-size-to-human-readable-format)*/
+func	ByteCountIEC(bytes uint64) string {
+
+	const unit = 1024
+
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB",
+		float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func	sPrintTimeSince(then time.Time) string {
+	now := time.Now()
+	timeSince := now.Sub(then)
+	return timeSince.String()
+}
 
 func	sPrintfCliList(cliList *List) string {
 
@@ -24,7 +48,7 @@ func	sPrintfCliList(cliList *List) string {
 	return cliStr
 }
 
-func	sPrintfCliWList(cliWList *List) string {
+func	sPrintCliWList(cliWList *List) string {
 
 	var cliStr	string
 	var cliArr	[]string
@@ -42,7 +66,7 @@ func	sPrintfCliWList(cliWList *List) string {
 	return cliStr
 }
 
-func	sPrintfAPList(apList *List) string {
+func	sPrintAPList(apList *List) string {
 
 	var apStr	string
 	var apArr	[]string
@@ -60,7 +84,7 @@ func	sPrintfAPList(apList *List) string {
 	return apStr
 }
 
-func	sPrintfAPWList(apWList *List) string {
+func	sPrintAPWList(apWList *List) string {
 
 	var apStr	  string
 	var apArr	[]string
@@ -78,7 +102,7 @@ func	sPrintfAPWList(apWList *List) string {
 	return apStr
 }
 
-func	sPrintfAssociation(apList *List, showAtkCnt bool) string {
+func	sPrintAssociation(apList *List, showAtkCnt bool) string {
 
 	var c			string
 	var assocStr	string
@@ -111,12 +135,12 @@ func	sPrintfAssociation(apList *List, showAtkCnt bool) string {
 	return assocStr
 }
 
-func	sPrintfDump(apList *List, cliList *List) string {
+func	sPrintDump(apList *List, cliList *List) string {
 
 	dumpStr := "--- monitor dump ---\n"
 	dumpStr = dumpStr + "\nAPs\n"
 	if len(apList.contents) > 0 {
-		dumpStr = dumpStr + sPrintfAPList(apList)
+		dumpStr = dumpStr + sPrintAPList(apList)
 	} else {
 		dumpStr = dumpStr + "\nno APs...\n\n"
 	}
@@ -127,6 +151,6 @@ func	sPrintfDump(apList *List, cliList *List) string {
 		dumpStr = dumpStr + "\nno clients...\n"
 	}
 	dumpStr = dumpStr + "\nAssociation\n"
-	dumpStr = dumpStr + sPrintfAssociation(apList, false)
+	dumpStr = dumpStr + sPrintAssociation(apList, false)
 	return dumpStr
 }
