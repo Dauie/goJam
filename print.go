@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,7 +27,10 @@ func	ByteCountIEC(bytes uint64) string {
 func	sPrintTimeSince(then time.Time) string {
 	now := time.Now()
 	timeSince := now.Sub(then)
-	return timeSince.String()
+	timeStr := timeSince.String()
+	decInx := strings.IndexRune(timeStr, '.')
+	timeStr = timeStr[:decInx + 4] + "s"
+	return timeStr
 }
 
 func	sPrintfCliList(cliList *List) string {

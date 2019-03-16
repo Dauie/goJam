@@ -167,7 +167,7 @@ func	guiMode(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliWLi
 		log.Panicln(err)
 	}
 	go goJamLoop(MonIfaG, APListG, CliListG, APWListG, CliWListG)
-	go doEvery(time.Second * 1, updateViews)
+	go doEvery(time.Millisecond * 200, updateViews)
 	if err := gui.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
 	}

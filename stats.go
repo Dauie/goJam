@@ -20,6 +20,3 @@ func (s *Stats) SetSessionEnd(sessionEnd time.Time) {
 func (s *Stats) SetSessionStart(sessionStart time.Time) {
 	s.sessionStart = sessionStart
 }
-
-
-

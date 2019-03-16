@@ -49,4 +49,3 @@ func	getDot11Family(conn *genetlink.Conn) (* genetlink.Family, error) {
 	}
 	return &fam, nil
 }
-
