@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
@@ -27,9 +28,9 @@ type Opts				struct {
 	APWhiteList			string	`short:"a" long:"apwlist" description:"file with new line separated list of AP MACs to be spared"`
 	GuiMode				bool	`short:"g" long:"gui" description:"enable gui mode for manual control"`
 	APScanInterval		uint32	`short:"s" long:"scaninterval" default:"60" description:"the interval between ap scans in seconds"`
-	AttackInterval		uint32	`short:"d" long:"attackinterval" default:"10" description:"the interval between attacks in seconds"`
-	AttackCount			uint16	`short:"p" long:"packetcount" default:"5" description:"the amount of packets to be sent during each attack interval"`
-	ChanChangeInterval	uint32	`short:"h" long:"chaninterval" default:"3" description:"the interval between channel switches"`
+	AttackInterval		uint32	`short:"t" long:"attackinterval" default:"10" description:"the interval between attacks in seconds"`
+	AttackCount			uint16	`short:"p" long:"attackcount" default:"5" description:"the amount of packets to be sent during each attack"`
+	ChanChangeInterval	uint32	`short:"f" long:"channinterval" default:"3" description:"the interval between channel switches in milliseconds"`
 }
 
 var (
@@ -207,9 +208,15 @@ func	goJamLoop(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliW
 
 func	initEnv() {
 
+	// check for sudo privileges
+	user := os.Geteuid()
+	if user != 0 {
+		fmt.Printf("admin privledges are required for %s run 'sudo %s [options]'\n", (os.Args[0])[2:], (os.Args[0])[2:])
+		os.Exit(1)
+	}
 	// add 2.4Ghz band to active channels.
 	for e, v := range ChanArrG {
-		if e < 14 {
+		if e < 13 {
 			ActiveChanArrG = append(ActiveChanArrG, v)
 		}
 	}

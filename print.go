@@ -72,13 +72,21 @@ func	sPrintCliWList(cliWList *List) string {
 
 func	sPrintAPList(apList *List) string {
 
-	var apStr	string
-	var apArr	[]string
+	var apStr		string
+	var apArr		[]string
+	var	maxAPNamLen	int
 
 	APListMutexG.Lock()
 	for _, v := range apList.contents {
 		ap := (v).(AP)
-		apArr = append(apArr, ap.ssid + " | " + ap.hwaddr.String())
+
+		if len(ap.ssid) > maxAPNamLen {
+			maxAPNamLen = len(ap.ssid)
+		}
+	}
+	for _, v := range apList.contents {
+		ap := (v).(AP)
+		apArr = append(apArr, fmt.Sprintf("%-*s\t|\t%s", maxAPNamLen, ap.ssid, ap.hwaddr.String()))
 	}
 	APListMutexG.Unlock()
 	sort.Strings(apArr)

@@ -22,6 +22,8 @@ var (
 	CliWListViewG = "Whitelisted Clients"
 	APWListViewG = "Whitelisted APs"
 	AssocViewG = "AP/Client Association"
+	HelpViewG = "Help"
+	DisplayHelpG = false
 )
 
 func	checkDimensions(mY int, mX int) error {
@@ -79,13 +81,27 @@ func	cursorUp(g *gocui.Gui, v *gocui.View) error {
 
 func	nextView(g *gocui.Gui, v *gocui.View) error {
 
-	nextIndex := (ViewInxG + 1) % len(ViewArrG)
-	name := ViewArrG[nextIndex]
+	nextInx := (ViewInxG + 1) % len(ViewArrG)
+	name := ViewArrG[nextInx]
 
 	if _, err := g.SetCurrentView(name); err != nil {
 		return err
 	}
-	ViewInxG = nextIndex
+	ViewInxG = nextInx
+	return nil
+}
+
+func	prevView(g *gocui.Gui, v *gocui.View) error {
+
+	prevInx := ViewInxG - 1
+	if prevInx < 0 {
+		prevInx = len(ViewArrG) - 1
+	}
+	name := ViewArrG[prevInx]
+	if _, err := g.SetCurrentView(name); err != nil {
+		return err
+	}
+	ViewInxG = prevInx
 	return nil
 }
 
@@ -112,7 +128,13 @@ func	keybindings(g *gocui.Gui) error {
 	if err := g.SetKeybinding("", gocui.KeyArrowDown, gocui.ModNone, cursorDown); err != nil {
 		log.Panicln(err)
 	}
-	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, nextView); err != nil {
+	if err := g.SetKeybinding("", gocui.KeyArrowRight, gocui.ModNone, nextView); err != nil {
+		log.Panicln(err)
+	}
+	if err := g.SetKeybinding("", gocui.KeyArrowLeft, gocui.ModNone, prevView); err != nil {
+		log.Panicln(err)
+	}
+	if err := g.SetKeybinding("", gocui.KeyCtrlH, gocui.ModNone, toggleHelpView); err != nil {
 		log.Panicln(err)
 	}
 	if err := g.SetKeybinding(CliViewG, gocui.KeySpace, gocui.ModNone, addToCliWList); err != nil {
@@ -212,6 +234,36 @@ func	addToAPWList(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+func	printHelpView(view *gocui.View) {
+
+	var helpStr string
+	helpArr := [][]string{
+		{"space:", "add remove element from list"},
+		{"arrow right:", "next view"},
+		{"arrow left:", "previous view"},
+		{"arrow up:", "cursor up"},
+		{"arrow down:", "cursor down"},
+		{"mousewheel:", "cursor up and down"},
+		{"ctrl + h:", "toggle help window"},
+		{"ctrl + c:", "close program"},
+	}
+	maxKeyLen := 0
+
+	view.Clear()
+	for _, v := range helpArr {
+		if len(v[0]) > maxKeyLen {
+			maxKeyLen = len(v[0])
+		}
+	}
+	for _, v := range helpArr {
+		helpStr = helpStr + fmt.Sprintf("%-*s%s\n",  maxKeyLen + 4, v[0], v[1])
+	}
+	_, err := view.Write([]byte(helpStr))
+	if err != nil {
+		log.Panicln(err)
+	}
+}
+
 func	printStatsView(view *gocui.View) {
 
 	view.Clear()
@@ -274,6 +326,35 @@ func	printAssociationView(view *gocui.View) {
 	if err != nil {
 		log.Panicln(err)
 	}
+}
+
+func	toggleHelpView(g *gocui.Gui, v *gocui.View) error {
+
+	mX, mY := g.Size()
+
+	if err := checkDimensions(mX, mY); err != nil {
+		return nil
+	}
+	DisplayHelpG = !DisplayHelpG
+	if DisplayHelpG {
+		view, err := g.SetView(HelpViewG, mX / 2 - 25, mY / 2 - 5, mX / 2 + 25, mY / 2 + 5)
+		if err != nil {
+			if err != gocui.ErrUnknownView {
+				return err
+			}
+			view.Title = HelpViewG
+			view.BgColor = BGColorG
+			view.FgColor = FGColorG
+			view.SelBgColor = BGColorG
+			view.SelFgColor = FGColorG
+		}
+		printHelpView(view)
+	} else {
+		if err := g.DeleteView(HelpViewG); err != nil {
+			log.Fatalln(err)
+		}
+	}
+	return nil
 }
 
 func	statsView(g *gocui.Gui) error {
