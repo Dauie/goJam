@@ -262,7 +262,9 @@ func	main() {
 	if err := monIfa.SetFilterForTargets(); err != nil {
 		log.Fatalln("JamConn.SetFilterForTargets()", err)
 	}
-	monIfa.SetLastChanSwitch(time.Now())
+	if err := monIfa.SetRandChannel(); err != nil {
+		log.Fatalln("JamConn.SetRandChannel() " + err.Error())
+	}
 	monIfa.SetLastDeauth(time.Now())
 	StatsG.SetSessionStart(time.Now())
 	if OptsG.DumpDuration > 0 {

@@ -270,8 +270,8 @@ func	printStatsView(view *gocui.View) {
 	monSizeStr := ByteCountIEC(StatsG.nByteMon)
 	txSizeStr := ByteCountIEC(StatsG.nByteTx)
 	timeStr := sPrintTimeSince(StatsG.sessionStart)
-	statStr := fmt.Sprintf("monPk: %d/%s\t\t\t\tpkTx: %d/%s\t\t\t\tnDeauth\\nDissac: %d/%d\t\t\t\t%s",
-		StatsG.nPktMon, monSizeStr, StatsG.nPktTx, txSizeStr, StatsG.nDeauth, StatsG.nDisassc, timeStr)
+	statStr := fmt.Sprintf("freq: %dMhz\t\t\tmonPk: %d/%s\t\t\t\tpkTx: %d/%s\t\t\t\tnDeauth\\nDissac: %d/%d\t\t\t\t%s",
+		MonIfaG.currentFreq, StatsG.nPktMon, monSizeStr, StatsG.nPktTx, txSizeStr, StatsG.nDeauth, StatsG.nDisassc, timeStr)
 	_, err := view.Write([]byte(statStr))
 	if err != nil {
 		log.Panicln(err)

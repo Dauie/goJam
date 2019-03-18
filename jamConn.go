@@ -71,10 +71,20 @@ func	NewJamConn(ifaName string) (*JamConn, error) {
 
 func	(conn *JamConn)	SetRandChannel() error {
 
-	inx := randInt(0, len(ChanArrG) - 1)
-	chann := ChanArrG[inx]
-	if err := conn.SetDeviceFreq(chann); err != nil {
-		return errors.New("conn.SetDeviceFreq() " + err.Error())
+	done := false
+
+	for !done {
+		inx := randInt(0, len(ChanArrG) - 1)
+		chann := ChanArrG[inx]
+		if err := conn.SetDeviceFreq(chann); err != nil {
+			if err.Error() == "invalid argument" {
+				continue
+			} else {
+				return err
+			}
+		} else {
+			done = true
+		}
 	}
 	return nil
 }
@@ -105,6 +115,39 @@ func	(conn *JamConn)	SetDeviceFreq(chann Channel) error {
 			if !OptsG.GuiMode {
 				fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
 			}
+			return err
+		}
+	}
+	conn.SetLastChanSwitch(time.Now())
+	conn.currentFreq = chann.CenterFreq
+	return nil
+}
+
+func	(conn *JamConn)	GetDeviceFreq(chann Channel) error {
+
+	encoder := netlink.NewAttributeEncoder()
+	encoder.Uint32(nl80211.ATTR_IFINDEX, uint32(conn.ifa.Index))
+	encoder.Uint32(ATTR_CHANNEL_WIDTH, chann.ChanWidth)
+	encoder.Uint32(ATTR_CENTER_FREQ, chann.CenterFreq)
+	attribs, err := encoder.Encode()
+	if err != nil {
+		return errors.New("genetlink.Encoder.Encode() " + err.Error())
+	}
+	req := genetlink.Message {
+		Header: genetlink.Header {
+			Command: nl80211.IFACE_COMB_NUM_CHANNELS,
+			Version: conn.fam.Version,
+		},
+		Data: attribs,
+	}
+	flags := netlink.HeaderFlagsRequest | netlink.HeaderFlagsAcknowledge
+	_, err = conn.nlconn.Execute(req, conn.fam.ID, flags)
+	if err != nil {
+		if err.Error() == "invalid argument" {
+			ActiveChanArrG = remove(ActiveChanArrG, chann.CenterFreq)
+			if !OptsG.GuiMode {
+				fmt.Printf("cannot change to frequency %dMhz\n", chann.CenterFreq)
+			}
 			return nil
 		}
 		return errors.New("genetlink.Conn.Execute() " + err.Error())
@@ -113,6 +156,7 @@ func	(conn *JamConn)	SetDeviceFreq(chann Channel) error {
 	conn.currentFreq = chann.CenterFreq
 	return nil
 }
+
 
 func	(conn *JamConn)	SendScanAbort() error {
 
