@@ -127,7 +127,7 @@ func	sPrintAssociation(apList *List, showAtkCnt bool) string {
 		var cliArr []string
 		for _, v := range ap.clients {
 			if showAtkCnt {
-				c = fmt.Sprintf("\t%s ˫ %d\n", v.hwaddr.String(), v.nDeauth)
+				c = fmt.Sprintf("\t%s ˫ %d\n", v.hwaddr.String(), v.nDeauth + v.nDisassc)
 			} else {
 				c = fmt.Sprintf("\t%s\n", v.hwaddr.String())
 			}

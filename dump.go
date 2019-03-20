@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func	monitorDump(monIfa *JamConn, apList *List, cliList *List, apWList *List, cliWList *List) {
+func	monitorDump(monIfa *JamConn, apList *List, cliList *List, cliWList *List) {
 
 	pktSrc := gopacket.NewPacketSource(monIfa.handle, monIfa.handle.LinkType())
 	for !QuitG && time.Since(StatsG.sessionStart) < time.Second * time.Duration(OptsG.DumpDuration) {
@@ -32,6 +32,6 @@ func	monitorDump(monIfa *JamConn, apList *List, cliList *List, apWList *List, cl
 		}
 		monIfa.ChangeChanIfPast(time.Millisecond * 100)
 	}
-	dumpStr := sPrintDump(apList, cliWList)
+	dumpStr := sPrintDump(apList, cliList)
 	fmt.Print(dumpStr)
 }

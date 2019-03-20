@@ -231,10 +231,10 @@ func	main() {
 	var cliList		List
 	var cliWList	List
 
-	initEnv()
 	if _, err := flags.ParseArgs(&OptsG, os.Args); err != nil {
 		os.Exit(1)
 	}
+	initEnv()
 	cliWList, apWList = getWhiteLists(&OptsG)
 	monIfa, err := NewJamConn(OptsG.MonitorInterface)
 	if err != nil {
@@ -266,7 +266,7 @@ func	main() {
 	monIfa.SetLastDeauth(time.Now())
 	StatsG.SetSessionStart(time.Now())
 	if OptsG.DumpDuration > 0 {
-		monitorDump(monIfa, &apList, &cliList, &apWList, &cliWList)
+		monitorDump(monIfa, &apList, &cliList, &cliWList)
 	} else if OptsG.GuiMode {
 		guiMode(monIfa, &apList, &cliList, &apWList, &cliWList)
 	} else {

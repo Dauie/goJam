@@ -74,13 +74,17 @@ func	(conn *JamConn)	SetRandChannel() error {
 	done := false
 
 	for !done {
-		inx := randInt(0, len(ChanArrG) - 1)
-		chann := ChanArrG[inx]
-		if err := conn.SetDeviceFreq(chann); err != nil {
-			if err.Error() == "invalid argument" {
-				continue
+		inx := randInt(0, len(ActiveChanArrG) - 1)
+		chann := ActiveChanArrG[inx]
+		if chann.CenterFreq != 0 {
+			if err := conn.SetDeviceFreq(chann); err != nil {
+				if err.Error() == "invalid argument" {
+					continue
+				} else {
+					return err
+				}
 			} else {
-				return err
+				done = true
 			}
 		} else {
 			done = true
