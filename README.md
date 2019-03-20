@@ -28,12 +28,15 @@ I do not condone the malicious use of the program. Please use with caution and i
 
 ```./goJam --help```
 
+## Future features:
+* Automatic WPA handshake capture
+* Configurable attack options for cli & gui
+
 ## Known issues
 * intermitten success changing into 5Ghz band channels
 * subsequent AP scans are mildly successful sometimes
 
-## Future features:
-* Automatic WPA handshake capture
-* Configurable attack options for cli & gui
+
+
 
 ![alt text](https://github.com/Dauie/goJam/blob/master/goJamSS.png "goJam")
