@@ -15,7 +15,7 @@ I do not condone the malicious use of the program. Please use with caution and i
 ## try it
 
 ### prerequisites:
-* linux (developed on Ubuntu 18.04 kernel 4.15.0-46-generic. This may work on mac, but I have not tested)
+* linux (developed on Ubuntu 18.04 kernel 4.15.0-46-generic. This should work on any modern linux distro, but I have not tested many)
 * wifi chipset and driver that supports monitor mode and packet injection (built using a Asus USB-AC56 & Alfa AU1900 using aircrack-ng rtl8812au & rtl8814au drivers respectively)
 * golang
 * make
